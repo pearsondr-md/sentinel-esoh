@@ -6,7 +6,7 @@ The first working milestone is this path:
 
 Environmental compliance, occupational health, executive analytics, and AI are later. They should create findings and actions on this same path rather than invent a second one.
 
-The path is the project’s operational loop — identify, assess, assign, remediate, verify, close, report — lined up with the five steps of risk management in ATP 5-19 paragraph 1-14. “Report” in the first milestone means the record can be read back in full. A council dashboard is a later capability.
+The path is the project’s operational loop: identify, assess, decide, check authority, assign, remediate, verify, close, and report. ATP 5-19 paragraph 1-14 names five steps of risk management. Inside this loop the matrix result, the human decision, and the authority check are separate records. “Report” in the first milestone means the record can be read back in full. A council dashboard is a later capability.
 
 ## The story
 
@@ -20,11 +20,13 @@ The container is a teaching example. It is not a statement that a real waste rul
 
 1. **Identify.** An inspector creates an inspection and an observation, or an employee files a written report. A safety officer creates the finding from that source. The finding’s original text is saved and not edited. Employee reports can be shown without the reporter’s name.
 2. **Assess.** The safety officer enters probability (A–E) and severity (I–IV) for the initial assessment. The server looks up ATP 5-19 paragraphs 1-45 through 1-48 and stores the level. The officer then enters controls and a residual probability and severity. The server looks up the residual level the same way. Residual risk is a second use of the same matrix after the estimates change. It is not a percent discount and not a typed-in level.
-3. **Decide and assign.** The commander records accept or reject against the residual assessment. The server writes an authority check. If the check is blocked, the action can still be assigned to fix the hazard. Work does not wait on a forbidden acceptance. An acceptance is simply absent.
-4. **Remediate.** The assigned person completes the action and attaches evidence.
-5. **Verify.** A different user records pass or fail. The server rejects a verification submitted by the user who completed the action.
-6. **Close.** A passed verification allows the action to close. The finding status becomes “action closed.” The original text, both matrix results, the decision, and a failed verification if one happened earlier all remain.
-7. **Report.** Any authorized user in the organization can open the chain and read it in order. That is the report for this milestone.
+3. **Decide.** The commander records accept or reject against the residual assessment. That record stores who decided and when. It does not change the matrix result.
+4. **Check authority.** The server records an authority check against verified table cells only. The result is allowed or blocked. A blocked check is stored. It does not become an acceptance. Work does not wait on a forbidden acceptance.
+5. **Assign.** A supervisor is assigned the action. Assignment is allowed when the authority check is blocked.
+6. **Remediate.** The assigned person completes the action and attaches evidence.
+7. **Verify.** A different user records pass or fail. The server rejects a verification submitted by the user who completed the action.
+8. **Close.** A passed verification allows the action to close. The finding status becomes “action closed.” The original text, both matrix results, the decision, the authority check, and a failed verification if one happened earlier all remain.
+9. **Report.** Any authorized user in the organization can open the chain and read it in order. That is the report for this milestone.
 
 ## Three risk facts
 
@@ -71,7 +73,7 @@ No grade in the Camp Sentinel seed data will be configured as a general officer 
 - The user who completes an action cannot verify it.
 - A commander’s decision and a safety officer’s estimate are different users in the seed data, so the learner can see that estimating and accepting are different duties. The publications do not forbid one person from knowing both skills. The split in the demo is there to make the records obvious.
 - Mishap investigations, when they are added, follow DA Pam 385-10 paragraph 2-3b: the investigator was not involved and does not supervise the injured employee. That rule is not faked with a medical record. The first milestone does not include mishaps.
-- AI is not on this path. When it exists, it will be unable to call the functions that write matrix results, decisions, assignments, verifications, or closures.
+- AI is not on this path. When it exists, it will be unable to call the functions that write matrix results, decisions, authority checks, assignments, verifications, or closures.
 
 ## What “done” means for the milestone
 
