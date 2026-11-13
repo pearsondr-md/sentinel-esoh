@@ -17,7 +17,7 @@ Nothing in these notes is an official Army assessment, an Authority to Operate, 
 7. [Data model](docs/07-data-model.md) — the records and how history is kept.
 8. [First workflow](docs/08-workflow.md) — inspection, finding, hazard, risk assessment, corrective action, and verification. This is the first working milestone.
 9. [Security and AI governance](docs/09-security-ai-governance.md) — human decisions, synthetic data, and how Grok will be used later.
-10. [42-day roadmap](docs/10-roadmap.md) — about one hour a day. Understanding comes before feature count.
+10. [42-day roadmap](docs/10-roadmap.md) — about one hour a day. Each day practices Cursor or Grok. Army doctrine is read only for the rule that day's work must follow.
 
 ## First milestone
 
