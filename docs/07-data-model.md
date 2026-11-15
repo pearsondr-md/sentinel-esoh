@@ -65,7 +65,7 @@ Closing a corrective action writes an event on the action and an event on the fi
 
 ## Reserved for later, not built in the first milestone
 
-These names are here so the core tables do not have to be broken apart later. Obligation, waste stream, spill, exposure group, and the ASOHMS practice tables are now used. Mishap and the AI tables stay empty.
+These names are here so the core tables do not have to be broken apart later. Obligation, waste stream, spill, exposure group, the ASOHMS practice tables, and the AI tables are now used. Mishap stays empty.
 
 - **mishap.** Class code, once DA Pam 385-40 is transcribed. Link to hazard and to finding.
 - **obligation**, **waste_stream**, **spill.** These records are in use. An obligation stores the duty and where it applies. A waste stream stores the recorded distinction between subtitle C waste and other waste. A spill stores what happened and who it was reported to. Each one can open a finding on the existing action path. There is no column for a compliance determination. A spill does not point at a mishap until that record exists.
@@ -73,7 +73,8 @@ These names are here so the core tables do not have to be broken apart later. Ob
 - **asohms_objective.** In use. The six internal codes and the source labels from the [mapping note](03-asohms-mapping.md).
 - **asohms_criterion.** In use. `official_text` stays null. `placeholder_note` says the official sentence is not loaded. The practice response returns that note as a placeholder and does not copy it into `officialText`.
 - **asohms_score.** In use. One practice status per organization and objective: not started, in progress, or complete. `stage_label` is an optional name. `is_official_assessment` is not a column. The absence of that column is deliberate. There is nothing to set to true.
-- **source_document** and **ai_exchange.** For the later AI slice. `ai_exchange` stores the user, the record ids that were actually sent, the source ids that were actually sent, and the reply.
+- **source_document.** In use. A card from the source register: publication, citation, review status, review date, the statement that was read, and the product limit. An unresolved card stays unresolved.
+- **ai_exchange.** In use. The user, the question, the record ids that were sent, the source ids that were sent, and the reply. The reply is text. It is not applied to a finding, a decision, or an action.
 
 ## Relationships worth remembering
 

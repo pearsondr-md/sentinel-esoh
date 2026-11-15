@@ -38,7 +38,7 @@ flowchart LR
 
 Evidence files, when the workflow reaches them, sit in a folder on disk. The database stores the file name, the record it belongs to, and a hash. The server checks role and organization before it sends the file.
 
-A later Grok call is another outbound request from Express only. It is drawn in the [security note](09-security-ai-governance.md). It is not part of the first milestone’s running path.
+A Grok call is an outbound request from Express only. The xAI key stays in the server environment. The browser receives the checked reply. The call is drawn in the [security note](09-security-ai-governance.md).
 
 ## Where rules live
 
@@ -67,7 +67,7 @@ Screens stay few: a list, a finding, and the assessment and action steps. Visual
 ## What is intentionally absent
 
 - Official ASOHMS criterion text and any screen that could be read as an Army rating.
-- Environmental, occupational health, council dashboard, and AI modules. The shared types may reserve a program-area field on a finding so those modules can attach later. That field can stay unused.
+- A model path that writes a risk level, an acceptance, an assignment, or a closure. The explanation call stores text and does not change those records.
 - Override, waiver, delegation, and “set the level anyway” functions.
 - Login integration with Army identity systems.
 

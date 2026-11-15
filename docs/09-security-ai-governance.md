@@ -12,7 +12,7 @@ SENTINEL is a synthetic classroom system. This note states the controls for the 
 
 - **Identity.** Server-side sessions. Passwords stored as hashes. The session cookie is not a place to put roles that the server fails to check again.
 - **Authorization.** Every route checks the user’s role and organization. A tenant unit token does not read another unit’s drafts. Administrator rights do not include deleting history.
-- **Secrets.** The database file and, later, the xAI key live on the server. The key is an environment variable. It is not written into the client bundle, a screenshot, or a document in this repository.
+- **Secrets.** The database file and the xAI key live on the server. The key is the `XAI_API_KEY` environment variable, or one line in `server/data/xai.key`. That folder is gitignored. The key is not written into the client bundle, a screenshot, or a document in this repository.
 - **Input checks.** The server checks types, required fields, and allowed status moves. The matrix level is computed, not accepted from the browser as an authority.
 - **Human approval.** Residual-risk acceptance is a `risk_decision` by a user, plus an `authority_check`. The check fails closed when the doctrinal cell is unverified. There is no override flag.
 - **Audit.** `record_event` is insert-only. Finding text is insert-once.
@@ -20,7 +20,9 @@ SENTINEL is a synthetic classroom system. This note states the controls for the 
 - **Health data.** `exposure_group` stores an agent, a shop, a control method, a headcount, and an exam-completion percent. A diagnosis or any other field is rejected, and no person-level result column exists.
 - **Segregation.** Organizational scope is the segregation model in this build. It is not a classified-network design.
 
-## AI, when that capability is built
+## AI
+
+The learning build makes this call. The reply is still stored text, and it is still not applied to a row.
 
 Grok is reached through the xAI API from the Express server. The model does not receive database credentials, a connection string, or permission to run SQL. The server loads the records the user’s role may see, builds a prompt from those records and from source-register cards, and sends that text.
 

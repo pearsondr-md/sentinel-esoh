@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { DatabaseSync } from "node:sqlite";
 import { ACCEPTANCE_CELLS, MATRIX_CELLS } from "./doctrine.ts";
 import { hashPassword } from "./passwords.ts";
+import { SOURCE_CARDS } from "./sources.ts";
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS organization (
@@ -298,6 +299,30 @@ CREATE TABLE IF NOT EXISTS asohms_score (
   UNIQUE (organization_id, objective_id)
 );
 
+CREATE TABLE IF NOT EXISTS source_document (
+  id TEXT PRIMARY KEY,
+  publication TEXT NOT NULL,
+  authority_layer TEXT NOT NULL,
+  citation TEXT NOT NULL,
+  review_status TEXT NOT NULL,
+  reviewed_on TEXT NOT NULL,
+  statement TEXT NOT NULL,
+  product_limit TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS ai_exchange (
+  id TEXT PRIMARY KEY,
+  organization_id TEXT NOT NULL REFERENCES organization(id),
+  user_id TEXT NOT NULL,
+  question TEXT NOT NULL,
+  finding_id TEXT,
+  record_ids TEXT NOT NULL,
+  source_ids TEXT NOT NULL,
+  reply_text TEXT NOT NULL,
+  reply_json TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS record_event (
   id TEXT PRIMARY KEY,
   organization_id TEXT NOT NULL REFERENCES organization(id),
@@ -327,6 +352,7 @@ export function openDatabase(dbPath: string): DatabaseSync {
   seed(db);
   ensureShopEmployee(db);
   ensureAsohms(db);
+  ensureSources(db);
   return db;
 }
 
@@ -464,6 +490,27 @@ const ASOHMS_OBJECTIVES: Array<[string, string, string, string, string | null, n
   ["CO-HAZARD", "e", "Hazard analysis and countermeasures", "Conduct hazard analysis and develop countermeasures", null, 5],
   ["CO-HEALTH", "f", "Health protection and readiness", "Health protection and readiness", null, 6],
 ];
+
+function ensureSources(db: DatabaseSync): void {
+  const insert = db.prepare(
+    `INSERT INTO source_document (
+       id, publication, authority_layer, citation, review_status, reviewed_on, statement, product_limit
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(id) DO NOTHING`,
+  );
+  for (const card of SOURCE_CARDS) {
+    insert.run(
+      card.id,
+      card.publication,
+      card.authorityLayer,
+      card.citation,
+      card.reviewStatus,
+      card.reviewedOn,
+      card.statement,
+      card.productLimit,
+    );
+  }
+}
 
 function ensureAsohms(db: DatabaseSync): void {
   const insertObjective = db.prepare(

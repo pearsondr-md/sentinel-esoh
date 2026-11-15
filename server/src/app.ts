@@ -20,6 +20,8 @@ import {
   type MatrixCell,
 } from "./doctrine.ts";
 import { verifyPassword } from "./passwords.ts";
+import { buildQuestionPrompt, callXai, checkReply, type SuppliedRecord } from "./ai.ts";
+import type { SourceCard } from "./sources.ts";
 
 class HttpError extends Error {
   status: number;
@@ -48,7 +50,10 @@ type FindingRow = {
   program_area: string | null;
 };
 
-export function createApp(dbPath: string): { app: express.Express; db: DatabaseSync } {
+export function createApp(
+  dbPath: string,
+  options?: { complete?: (prompt: string) => Promise<string> },
+): { app: express.Express; db: DatabaseSync } {
   const db = openDatabase(dbPath);
   const app = express();
   app.use(express.json({ limit: "2mb" }));
@@ -489,6 +494,65 @@ export function createApp(dbPath: string): { app: express.Express; db: DatabaseS
     res.json({ code, practiceStatus, stageLabel });
   }));
 
+  app.post("/questions", wrap(async (req, res) => {
+    const actor = requireActor(db, req);
+    const body = bodyOf(req);
+    for (const key of Object.keys(body)) {
+      if (key !== "question" && key !== "findingId") {
+        throw new HttpError(400, `${key} is not part of a question`);
+      }
+    }
+    const question = requireString(body, "question");
+    if (question.length > 2000) throw new HttpError(400, "question is too long");
+    const findingId = optionalString(body, "findingId");
+    const packet = questionPacket(db, actor, findingId);
+    const sources = loadSources(db);
+    const prompt = buildQuestionPrompt({
+      question,
+      records: packet.records,
+      recordIds: packet.recordIds,
+      sources,
+    });
+    const complete = options?.complete ?? callXai;
+    let replyText: string;
+    try {
+      replyText = await complete(prompt);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "";
+      if (message === "The xAI key is not set on the server.") {
+        throw new HttpError(503, message);
+      }
+      if (message.startsWith("The model call failed")) {
+        throw new HttpError(502, message);
+      }
+      throw new HttpError(502, "The model call failed.");
+    }
+    const checked = checkReply(replyText, packet.labels, sources);
+    const id = randomUUID();
+    db.prepare(
+      `INSERT INTO ai_exchange (
+         id, organization_id, user_id, question, finding_id, record_ids, source_ids, reply_text, reply_json, created_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      id,
+      homeOrg(actor),
+      actor.id,
+      question,
+      findingId,
+      JSON.stringify(packet.recordIds),
+      JSON.stringify(sources.map((source) => source.id)),
+      replyText,
+      JSON.stringify(checked),
+      now(),
+    );
+    res.status(201).json({
+      id,
+      question,
+      notice: "This reply is stored text. It does not accept risk, assign an action, or close a record.",
+      ...checked,
+    });
+  }));
+
   app.post("/observations/:id/findings", wrap((req, res) => {
     const actor = requireActor(db, req);
     requireRole(actor, "safety officer");
@@ -836,13 +900,72 @@ export function createApp(dbPath: string): { app: express.Express; db: DatabaseS
   return { app, db };
 }
 
-function wrap(fn: (req: Request, res: Response) => void) {
+function wrap(fn: (req: Request, res: Response) => unknown) {
   return (req: Request, res: Response, next: NextFunction) => {
     try {
-      fn(req, res);
+      Promise.resolve(fn(req, res)).catch(next);
     } catch (error) {
       next(error);
     }
+  };
+}
+
+function loadSources(db: DatabaseSync): SourceCard[] {
+  const rows = db.prepare("SELECT * FROM source_document ORDER BY id").all() as Array<Record<string, string>>;
+  return rows.map((row) => ({
+    id: row.id,
+    publication: row.publication,
+    authorityLayer: row.authority_layer,
+    citation: row.citation,
+    reviewStatus: row.review_status === "verified" ? "verified" : "unresolved",
+    reviewedOn: row.reviewed_on,
+    statement: row.statement,
+    productLimit: row.product_limit,
+  }));
+}
+
+function questionPacket(db: DatabaseSync, actor: Actor, findingId: string | null): {
+  records: unknown;
+  recordIds: string[];
+  labels: SuppliedRecord[];
+} {
+  const findings = listScoped(db, actor, "finding", "created_at").map((row) => ({
+    id: String(row.id),
+    originalText: String(row.original_text),
+    status: String(row.status),
+    programArea: row.program_area,
+  }));
+  const exposures = listScoped(db, actor, "exposure_group", "created_at").map(publicExposure);
+  const practice = db.prepare(
+    `SELECT o.id, s.practice_status, s.stage_label
+     FROM asohms_objective o
+     LEFT JOIN asohms_score s ON s.objective_id = o.id AND s.organization_id = ?
+     ORDER BY o.sort_order`,
+  ).all(homeOrg(actor)) as Array<Record<string, unknown>>;
+  const selected = findingId ? findingChain(db, mustFinding(db, findingId, actor)) : null;
+  const labels: SuppliedRecord[] = [
+    ...findings.map((finding) => ({ id: finding.id, label: finding.originalText })),
+    ...exposures.map((group) => ({ id: String(group.id), label: `${group.agent} at ${group.shop}` })),
+    ...practice.map((row) => ({ id: String(row.id), label: String(row.id) })),
+  ];
+  if (selected) {
+    for (const hazard of selected.hazards) labels.push({ id: String(hazard.id), label: String(hazard.description) });
+    for (const action of selected.actions) labels.push({ id: String(action.id), label: String(action.description) });
+  }
+  const recordIds = [...new Set(labels.map((label) => label.id))];
+  return {
+    records: {
+      findings,
+      exposureGroups: exposures,
+      asohmsPractice: practice.map((row) => ({
+        code: row.id,
+        practiceStatus: row.practice_status ?? "not started",
+        stageLabel: row.stage_label,
+      })),
+      selectedFinding: selected,
+    },
+    recordIds,
+    labels,
   };
 }
 

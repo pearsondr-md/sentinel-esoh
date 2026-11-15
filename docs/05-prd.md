@@ -47,7 +47,7 @@ These are required for the full learning product. They are built after the first
 - **Occupational health.** Synthetic exposure-group counts and the percent of required exams complete. No individual health information.
 - **Executive view.** Counts a council would ask about, drawn from records already in the system. AR 385-10 paragraph 1-17 is the menu of questions. Items the system does not store are named and left uncounted. The view is not a doctrinal readiness score.
 - **ASOHMS practice records.** Six objectives and placeholder criteria. Practice statuses are local notes. The screen says that SENTINEL does not produce an official Army assessment.
-- **AI assistance.** Explanations and questions with record citations and source-register citations. No authority to change a record. Details are in the [security note](09-security-ai-governance.md).
+- **AI assistance.** Explanations and questions with record citations and source-register citations. The reply is stored text. It has no authority to change a record. Details are in the [security note](09-security-ai-governance.md).
 
 ## Cross-cutting rules
 
