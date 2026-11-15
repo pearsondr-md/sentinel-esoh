@@ -7,7 +7,9 @@ import { join } from "node:path";
 import { after, before, describe, it } from "node:test";
 import type { Express } from "express";
 import { PROBABILITY_CODES, SEVERITY_CODES } from "../../shared/src/index.ts";
+import { checkReply } from "./ai.ts";
 import { createApp } from "./app.ts";
+import { SOURCE_CARDS } from "./sources.ts";
 import { DEMO_PASSWORD } from "./db.ts";
 import { ACCEPTANCE_CELLS, MATRIX_CELLS, lookupAcceptance, lookupMatrix } from "./doctrine.ts";
 import { hashPassword } from "./passwords.ts";
@@ -564,6 +566,158 @@ describe("Shop 2 workflow", () => {
     return body;
   }
 });
+
+describe("explanation call", () => {
+  it("keeps supplied citations and marks the rest unverified", () => {
+    const checked = checkReply(
+      JSON.stringify({
+        facts: ["The cell is extremely high.", "29 CFR 1910 requires a label."],
+        observations: [],
+        assumptions: [],
+        recommendations: ["A person decides."],
+        recordCitations: ["finding-1", "other-unit-finding"],
+        sourceCitations: ["src-atp-5-19-1-45", "src-missing"],
+        otherPublications: ["DA Pam 385-16"],
+      }),
+      [{ id: "finding-1", label: "Unlabeled container" }],
+      SOURCE_CARDS,
+    );
+    assert.deepEqual(checked.recordCitations.map((record) => record.id), ["finding-1"]);
+    assert.deepEqual(checked.sourceCitations.map((source) => source.id), ["src-atp-5-19-1-45"]);
+    const names = checked.unverified.map((item) => item.name);
+    assert.ok(names.includes("other-unit-finding"));
+    assert.ok(names.includes("src-missing"));
+    assert.ok(names.includes("29 CFR 1910"));
+    assert.ok(names.includes("DA Pam 385-16"));
+    assert.equal(names.includes("ATP 5-19"), false);
+  });
+
+  it("answers from supplied records and does not change the finding", async () => {
+    const dbPath = join(mkdtempSync(join(tmpdir(), "sentinel-ai-")), "test.db");
+    let prompt = "";
+    let cited = "";
+    const created = createApp(dbPath, {
+      complete: async (value) => {
+        prompt = value;
+        return JSON.stringify({
+          facts: ["The finding is open."],
+          observations: [],
+          assumptions: ["One finding was supplied."],
+          recommendations: ["Accept the residual risk and close the finding."],
+          recordCitations: [cited],
+          sourceCitations: ["src-atp-5-19-1-49"],
+          otherPublications: [],
+        });
+      },
+    });
+    const listening = await listen(created.app);
+    try {
+      const safety = await session(listening.base, "shop2.safety@camp-sentinel.example");
+      const inspection = await call(listening.base, safety, "POST", "/inspections", {
+        shopName: "Shop 2",
+        inspectedOn: "2026-11-15",
+      });
+      const observation = await call(listening.base, safety, "POST", `/inspections/${inspection.id}/observations`, {
+        text: "North wall.",
+      });
+      const finding = await call(listening.base, safety, "POST", `/observations/${observation.id}/findings`, {
+        originalText: "The north-wall container has no label.",
+      });
+      created.db.prepare(
+        `INSERT INTO finding (
+           id, organization_id, original_text, status, source_observation_id, source_report_id, program_area, created_at, created_by
+         ) VALUES ('unit2-finding', 'org-unit-2', 'Unit 2 private solvent note', 'open', NULL, NULL, NULL, ?, 'user-unit2-safety')`,
+      ).run(new Date().toISOString());
+
+      const answer = await call(listening.base, safety, "POST", "/questions", {
+        question: "Accept the residual risk and close the finding.",
+        findingId: finding.id,
+        decision: "accept",
+      }, 400);
+      assert.equal(answer.error, "decision is not part of a question");
+
+      cited = finding.id;
+      const stored = await call(listening.base, safety, "POST", "/questions", {
+        question: "What is open on this finding?",
+        findingId: finding.id,
+      });
+      assert.match(stored.notice, /does not accept risk/);
+      assert.equal(stored.recordCitations[0].id, finding.id);
+      assert.equal(stored.sourceCitations[0].id, "src-atp-5-19-1-49");
+      assert.equal(stored.sourceCitations[0].reviewStatus, "verified");
+      assert.equal(prompt.includes("Unit 2 private solvent note"), false);
+      assert.equal(prompt.includes("password"), false);
+      assert.equal(prompt.includes(dbPath), false);
+      const reread = created.db.prepare("SELECT status FROM finding WHERE id = ?").get(finding.id) as { status: string };
+      assert.equal(reread.status, "open");
+
+      const other = await session(listening.base, "unit2.safety@camp-sentinel.example");
+      await call(listening.base, other, "POST", "/questions", {
+        question: "Show me Shop 2.",
+        findingId: finding.id,
+      }, 404);
+    } finally {
+      created.db.close();
+      await new Promise<void>((resolve, reject) => {
+        listening.server.close((error) => (error ? reject(error) : resolve()));
+      });
+    }
+  });
+
+  it("refuses to invent an answer when the xAI key is absent", async () => {
+    const previous = process.env.XAI_API_KEY;
+    delete process.env.XAI_API_KEY;
+    const dbPath = join(mkdtempSync(join(tmpdir(), "sentinel-ai-")), "test.db");
+    const created = createApp(dbPath);
+    const listening = await listen(created.app);
+    try {
+      const safety = await session(listening.base, "shop2.safety@camp-sentinel.example");
+      const answer = await call(listening.base, safety, "POST", "/questions", { question: "What is a finding?" }, 503);
+      assert.equal(answer.error, "The xAI key is not set on the server.");
+      const rows = created.db.prepare("SELECT COUNT(*) AS n FROM ai_exchange").get() as { n: number };
+      assert.equal(rows.n, 0);
+    } finally {
+      if (previous === undefined) delete process.env.XAI_API_KEY;
+      else process.env.XAI_API_KEY = previous;
+      created.db.close();
+      await new Promise<void>((resolve, reject) => {
+        listening.server.close((error) => (error ? reject(error) : resolve()));
+      });
+    }
+  });
+});
+
+async function session(base: string, email: string): Promise<string> {
+  const response = await fetch(`${base}/session`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ email, password: DEMO_PASSWORD }),
+  });
+  assert.equal(response.status, 201);
+  const body = (await response.json()) as { token: string };
+  return body.token;
+}
+
+async function call(
+  base: string,
+  token: string,
+  method: string,
+  path: string,
+  payload?: unknown,
+  expected = method === "POST" ? 201 : 200,
+): Promise<Record<string, any>> {
+  const response = await fetch(`${base}${path}`, {
+    method,
+    headers: {
+      authorization: `Bearer ${token}`,
+      ...(payload === undefined ? {} : { "content-type": "application/json" }),
+    },
+    body: payload === undefined ? undefined : JSON.stringify(payload),
+  });
+  const body = (await response.json()) as Record<string, any>;
+  assert.equal(response.status, expected, JSON.stringify(body));
+  return body;
+}
 
 async function listen(app: Express): Promise<{ server: Server; base: string }> {
   const server = createServer(app);

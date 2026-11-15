@@ -74,7 +74,7 @@ The first build implements one row in software: the core operational path. Later
 
 ## AI assistance
 
-**Capability.** Later. Explanations of records already in SENTINEL, and questions about sources that are actually in the source register, with the two kinds of citations kept visually separate.
+**Capability.** A question is answered from records the signed-in user can already open and from source-register cards stored in SENTINEL. Record citations and source-register citations are shown in separate sections. A publication or record that was not supplied is shown as unverified.
 
 **Authorities.** No publication reviewed here authorizes a model to set a risk level, accept risk, assign an action, or close a record. Those acts stay with people under ATP 5-19 and DA Pam 385-30. The governance rules are in the [security note](09-security-ai-governance.md).
 

@@ -62,6 +62,29 @@ export type AsohmsObjective = {
   stageLabel: string | null;
 };
 
+export type SourceCitation = {
+  id: string;
+  publication: string;
+  citation: string;
+  reviewStatus: "verified" | "unresolved";
+  reviewedOn: string;
+  statement: string;
+};
+
+export type Answer = {
+  id: string;
+  question: string;
+  notice: string;
+  facts: string[];
+  observations: string[];
+  assumptions: string[];
+  recommendations: string[];
+  recordCitations: Array<{ id: string; label: string }>;
+  sourceCitations: SourceCitation[];
+  unverified: Array<{ name: string; reason: string }>;
+  structured: boolean;
+};
+
 export type CouncilReport = {
   asOf: string;
   findings: Record<string, number>;
@@ -269,6 +292,8 @@ export const api = {
   addFindingFromSpill: (token: string, spillId: string, originalText: string) =>
     request<FindingSummary>(`/spills/${spillId}/findings`, token, "POST", { originalText }),
   council: (token: string) => request<CouncilReport>("/council", token),
+  ask: (token: string, question: string, findingId: string | null) =>
+    request<Answer>("/questions", token, "POST", { question, ...(findingId ? { findingId } : {}) }),
   asohms: (token: string) => request<{ notice: string; objectives: AsohmsObjective[] }>("/asohms", token),
   saveAsohmsPractice: (
     token: string,

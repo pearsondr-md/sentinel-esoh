@@ -9,6 +9,7 @@ import {
 } from "./api.ts";
 import { EnvironmentalDetail, EnvironmentalLists, type EnvironmentalSelection } from "./Environmental.tsx";
 import { ExposureDetail, ExposureLists } from "./OccupationalHealth.tsx";
+import { AskView } from "./Ask.tsx";
 import { AsohmsView } from "./Asohms.tsx";
 import { CouncilView } from "./Council.tsx";
 
@@ -154,6 +155,7 @@ function Workspace({ session }: { session: Session }) {
   const [exposureId, setExposureId] = useState<string | null>(null);
   const [showCouncil, setShowCouncil] = useState(false);
   const [showAsohms, setShowAsohms] = useState(false);
+  const [showAsk, setShowAsk] = useState(false);
   const [findingId, setFindingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -182,6 +184,7 @@ function Workspace({ session }: { session: Session }) {
             onClick={() => {
               setShowCouncil(true);
               setShowAsohms(false);
+                setShowAsk(false);
               setInspectionId(null);
               setReportId(null);
               setEnvironmental(null);
@@ -200,6 +203,7 @@ function Workspace({ session }: { session: Session }) {
             onClick={() => {
               setShowAsohms(true);
               setShowCouncil(false);
+              setShowAsk(false);
               setInspectionId(null);
               setReportId(null);
               setEnvironmental(null);
@@ -208,6 +212,24 @@ function Workspace({ session }: { session: Session }) {
             }}
           >
             Six objectives
+          </button>
+        </div>
+        <div>
+          <h2 className="mb-3 text-lg font-semibold">Ask</h2>
+          <button
+            className={`w-full rounded border px-3 py-2 text-left ${showAsk ? "border-stone-900 bg-white" : "border-stone-300 bg-stone-50"}`}
+            type="button"
+            onClick={() => {
+              setShowAsk(true);
+              setShowCouncil(false);
+              setShowAsohms(false);
+              setInspectionId(null);
+              setReportId(null);
+              setEnvironmental(null);
+              setExposureId(null);
+            }}
+          >
+            Question
           </button>
         </div>
         <div>
@@ -226,6 +248,7 @@ function Workspace({ session }: { session: Session }) {
                     setExposureId(null);
                     setShowCouncil(false);
                 setShowAsohms(false);
+                setShowAsk(false);
                     setFindingId(null);
                   }}
                 >
@@ -247,6 +270,7 @@ function Workspace({ session }: { session: Session }) {
                 setExposureId(null);
                 setShowCouncil(false);
                 setShowAsohms(false);
+                setShowAsk(false);
                 setFindingId(null);
                 refreshInspections().catch((caught: unknown) => setError(messageOf(caught)));
               }}
@@ -268,6 +292,7 @@ function Workspace({ session }: { session: Session }) {
                     setExposureId(null);
                     setShowCouncil(false);
                 setShowAsohms(false);
+                setShowAsk(false);
                     setFindingId(null);
                   }}
                 >
@@ -288,6 +313,7 @@ function Workspace({ session }: { session: Session }) {
               setExposureId(null);
               setShowCouncil(false);
                 setShowAsohms(false);
+                setShowAsk(false);
               setFindingId(null);
               refreshReports().catch((caught: unknown) => setError(messageOf(caught)));
             }}
@@ -303,6 +329,7 @@ function Workspace({ session }: { session: Session }) {
               setExposureId(null);
               setShowCouncil(false);
                 setShowAsohms(false);
+                setShowAsk(false);
               setFindingId(null);
             }}
           />
@@ -316,6 +343,7 @@ function Workspace({ session }: { session: Session }) {
             setEnvironmental(null);
             setShowCouncil(false);
                 setShowAsohms(false);
+                setShowAsk(false);
             setFindingId(null);
           }}
         />
@@ -345,6 +373,8 @@ function Workspace({ session }: { session: Session }) {
         <CouncilView session={session} />
       ) : showAsohms ? (
         <AsohmsView session={session} />
+      ) : showAsk ? (
+        <AskView session={session} findingId={findingId} />
       ) : (
         <p className="text-stone-600">Choose an inspection, a written report, an environmental record, an exposure group, or a practice note.</p>
       )}
