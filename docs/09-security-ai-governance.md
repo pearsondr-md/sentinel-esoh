@@ -17,7 +17,7 @@ SENTINEL is a synthetic classroom system. This note states the controls for the 
 - **Human approval.** Residual-risk acceptance is a `risk_decision` by a user, plus an `authority_check`. The check fails closed when the doctrinal cell is unverified. There is no override flag.
 - **Audit.** `record_event` is insert-only. Finding text is insert-once.
 - **Files.** Evidence download checks organization and role. The path is stored. The client does not choose a raw filesystem path.
-- **Health data.** The first milestone has no health tables. The reserved `exposure_group` shape has counts only. A later test should attempt to submit a diagnosis field and should fail because the field does not exist and the route rejects unknown health fields.
+- **Health data.** `exposure_group` stores an agent, a shop, a control method, a headcount, and an exam-completion percent. A diagnosis or any other field is rejected, and no person-level result column exists.
 - **Segregation.** Organizational scope is the segregation model in this build. It is not a classified-network design.
 
 ## AI, when that capability is built

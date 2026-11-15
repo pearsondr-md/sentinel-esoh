@@ -50,11 +50,11 @@ The first build implements one row in software: the core operational path. Later
 
 ## Occupational health
 
-**Capability.** Later, and only as program information: exposure groups, control methods, number of people, and percent of required exams complete.
+**Capability.** Program information only: exposure groups, control methods, number of people, and percent of required exams complete.
 
 **Authorities.** AR 385-10 chapter 7; AR 40-5 and DA Pam 40-11 as the publications those paragraphs cite; DoDI 6055.05 once the current change is confirmed; DoDM 6055.05 as the boundary for individual exams. ASOHMS objective CO-HEALTH. AR 11-35 is not traced to a rule until its PDF is opened.
 
-**Limit.** No individual medical record, no diagnosis, no lab result, and no sending of individual health information to an AI service. Aggregate counts are still synthetic.
+**Limit.** The exposure-group record stores the five program fields and rejects any other field, including a diagnosis. No individual medical record, no lab result, and no sending of individual health information to an AI service. Aggregate counts are synthetic.
 
 ## Executive operational picture
 

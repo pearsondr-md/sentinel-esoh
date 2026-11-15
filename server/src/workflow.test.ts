@@ -374,6 +374,36 @@ describe("Shop 2 workflow", () => {
     await api(otherUnit, "GET", `/obligations/${obligation.id}`, undefined, 404);
   });
 
+  it("stores an exposure group as counts and rejects a diagnosis", async () => {
+    const safety = await login("shop2.safety@camp-sentinel.example");
+    const otherUnit = await login("unit2.safety@camp-sentinel.example");
+    const group = await api(safety, "POST", "/exposure-groups", {
+      agent: "solvent vapor",
+      shop: "Shop 2",
+      controlMethod: "local exhaust",
+      headcount: 4,
+      examCompletionPercent: 75,
+    });
+    assert.equal(group.headcount, 4);
+    assert.equal(group.examCompletionPercent, 75);
+    assert.equal("diagnosis" in group, false);
+    await api(safety, "POST", "/exposure-groups", {
+      agent: "noise",
+      shop: "Shop 2",
+      controlMethod: "hearing protection",
+      headcount: 4,
+      examCompletionPercent: 75,
+      diagnosis: "hearing loss",
+    }, 400);
+    const columns = db.prepare("PRAGMA table_info(exposure_group)").all() as Array<{ name: string }>;
+    assert.equal(columns.some((column) => /person|diagnosis|patient|result/i.test(column.name)), false);
+    const hidden = await api(otherUnit, "GET", "/exposure-groups");
+    assert.equal(
+      (hidden.exposureGroups as Array<{ id: string }>).some((row) => row.id === group.id),
+      false,
+    );
+  });
+
   it("allows a general officer fixture to accept extremely high risk without changing the cell", async () => {
     const hash = hashPassword(DEMO_PASSWORD);
     db.prepare(

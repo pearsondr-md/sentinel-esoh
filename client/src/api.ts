@@ -50,6 +50,15 @@ export type Spill = {
   reportedTo: string;
 };
 
+export type ExposureGroup = {
+  id: string;
+  agent: string;
+  shop: string;
+  controlMethod: string;
+  headcount: number;
+  examCompletionPercent: number;
+};
+
 export type Assessment = {
   id: string;
   phase: string;
@@ -234,4 +243,22 @@ export const api = {
     request<Spill>("/spills", token, "POST", { description, reportedTo }),
   addFindingFromSpill: (token: string, spillId: string, originalText: string) =>
     request<FindingSummary>(`/spills/${spillId}/findings`, token, "POST", { originalText }),
+  exposureGroups: (token: string) => request<{ exposureGroups: ExposureGroup[] }>("/exposure-groups", token),
+  exposureGroup: (token: string, id: string) =>
+    request<{ exposureGroup: ExposureGroup }>(`/exposure-groups/${id}`, token),
+  createExposureGroup: (
+    token: string,
+    agent: string,
+    shop: string,
+    controlMethod: string,
+    headcount: number,
+    examCompletionPercent: number,
+  ) =>
+    request<ExposureGroup>("/exposure-groups", token, "POST", {
+      agent,
+      shop,
+      controlMethod,
+      headcount,
+      examCompletionPercent,
+    }),
 };

@@ -82,7 +82,7 @@ An obligation, a waste stream, and a spill are tracked on the same finding and a
 
 AR 40-5, 12 May 2020, and DA Pam 40-11, 18 May 2020 with an administrative revision dated 27 March 2025, are the public Army public-health pair found on the Army Publishing Directorate. AR 385-10 chapter 7 points to them for occupational health objectives. DoDI 6055.05 and DoDM 6055.05 cover occupational and environmental health and occupational medical examinations.
 
-SENTINEL’s later occupational-health slice, if built, will store program facts only: exposure groups, control methods, headcounts, and completion percentages. It will not store individual medical records, exam results, or diagnoses. DoDM 6055.05 is the boundary marker for the individual-exam world this demo will not enter.
+SENTINEL stores occupational health as program facts only: exposure groups, control methods, headcounts, and completion percentages. It does not store individual medical records, exam results, or diagnoses. DoDM 6055.05 is the boundary marker for the individual-exam world this product does not enter.
 
 AR 11-35, *Occupational and Environmental Health Risk Management*, dated 11 May 2016, appeared as active on an Army Publishing Directorate regulations list. The PDF was not opened. It is not yet a designed rule set. See the source register.
 

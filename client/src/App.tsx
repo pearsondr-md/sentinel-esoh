@@ -8,6 +8,7 @@ import {
   type Session,
 } from "./api.ts";
 import { EnvironmentalDetail, EnvironmentalLists, type EnvironmentalSelection } from "./Environmental.tsx";
+import { ExposureDetail, ExposureLists } from "./OccupationalHealth.tsx";
 
 const ACCOUNTS = [
   ["Shop 2 safety officer", "shop2.safety@camp-sentinel.example"],
@@ -148,6 +149,7 @@ function Workspace({ session }: { session: Session }) {
   const [inspectionId, setInspectionId] = useState<string | null>(null);
   const [reportId, setReportId] = useState<string | null>(null);
   const [environmental, setEnvironmental] = useState<EnvironmentalSelection | null>(null);
+  const [exposureId, setExposureId] = useState<string | null>(null);
   const [findingId, setFindingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -181,6 +183,7 @@ function Workspace({ session }: { session: Session }) {
                     setInspectionId(inspection.id);
                     setReportId(null);
                     setEnvironmental(null);
+                    setExposureId(null);
                     setFindingId(null);
                   }}
                 >
@@ -199,6 +202,7 @@ function Workspace({ session }: { session: Session }) {
                 setInspectionId(inspection.id);
                 setReportId(null);
                 setEnvironmental(null);
+                setExposureId(null);
                 setFindingId(null);
                 refreshInspections().catch((caught: unknown) => setError(messageOf(caught)));
               }}
@@ -217,6 +221,7 @@ function Workspace({ session }: { session: Session }) {
                     setReportId(report.id);
                     setInspectionId(null);
                     setEnvironmental(null);
+                    setExposureId(null);
                     setFindingId(null);
                   }}
                 >
@@ -234,6 +239,7 @@ function Workspace({ session }: { session: Session }) {
               setReportId(report.id);
               setInspectionId(null);
               setEnvironmental(null);
+              setExposureId(null);
               setFindingId(null);
               refreshReports().catch((caught: unknown) => setError(messageOf(caught)));
             }}
@@ -246,9 +252,21 @@ function Workspace({ session }: { session: Session }) {
               setEnvironmental(selection);
               setInspectionId(null);
               setReportId(null);
+              setExposureId(null);
               setFindingId(null);
             }}
           />
+        <ExposureLists
+          session={session}
+          selectedId={exposureId}
+          onSelect={(id) => {
+            setExposureId(id);
+            setInspectionId(null);
+            setReportId(null);
+            setEnvironmental(null);
+            setFindingId(null);
+          }}
+        />
       </section>
       {inspectionId ? (
         <InspectionDetail
@@ -269,8 +287,10 @@ function Workspace({ session }: { session: Session }) {
           <EnvironmentalDetail session={session} selection={environmental} onSelectFinding={setFindingId} />
           {findingId ? <FindingRecord session={session} findingId={findingId} /> : null}
         </div>
+      ) : exposureId ? (
+        <ExposureDetail session={session} groupId={exposureId} />
       ) : (
-        <p className="text-stone-600">Choose an inspection, a written report, or an environmental record.</p>
+        <p className="text-stone-600">Choose an inspection, a written report, an environmental record, or an exposure group.</p>
       )}
     </div>
   );

@@ -259,6 +259,18 @@ CREATE TABLE IF NOT EXISTS spill_finding (
   PRIMARY KEY (spill_id, finding_id)
 );
 
+CREATE TABLE IF NOT EXISTS exposure_group (
+  id TEXT PRIMARY KEY,
+  organization_id TEXT NOT NULL REFERENCES organization(id),
+  agent TEXT NOT NULL,
+  shop TEXT NOT NULL,
+  control_method TEXT NOT NULL,
+  headcount INTEGER NOT NULL,
+  exam_completion_percent REAL NOT NULL,
+  created_at TEXT NOT NULL,
+  created_by TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS record_event (
   id TEXT PRIMARY KEY,
   organization_id TEXT NOT NULL REFERENCES organization(id),

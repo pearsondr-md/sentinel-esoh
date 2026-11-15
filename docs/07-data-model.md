@@ -65,11 +65,11 @@ Closing a corrective action writes an event on the action and an event on the fi
 
 ## Reserved for later, not built in the first milestone
 
-These names are here so the core tables do not have to be broken apart later. Obligation, waste stream, and spill are now used. The others stay empty.
+These names are here so the core tables do not have to be broken apart later. Obligation, waste stream, spill, and exposure group are now used. The others stay empty.
 
 - **mishap.** Class code, once DA Pam 385-40 is transcribed. Link to hazard and to finding.
 - **obligation**, **waste_stream**, **spill.** These records are in use. An obligation stores the duty and where it applies. A waste stream stores the recorded distinction between subtitle C waste and other waste. A spill stores what happened and who it was reported to. Each one can open a finding on the existing action path. There is no column for a compliance determination. A spill does not point at a mishap until that record exists.
-- **exposure_group.** Agent, shop, control method, headcount, exam-completion percent. No person-level result column is part of the design.
+- **exposure_group.** In use. Agent, shop, control method, headcount, and exam-completion percent. A field that is not one of those five is rejected. No person-level result column is part of the design.
 - **asohms_objective.** The six internal codes and the source labels from the [mapping note](03-asohms-mapping.md).
 - **asohms_criterion.** `official_text` nullable. `placeholder_note` required while official text is null. A constraint worth enforcing later: if `official_text` is null, the row cannot be described as an official criterion in any generated sentence.
 - **asohms_score.** Optional practice status. `is_official_assessment` is not a column. The absence of that column is deliberate. There is nothing to set to true.

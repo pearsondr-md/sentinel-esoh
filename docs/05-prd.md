@@ -44,7 +44,7 @@ A minimal screen is part of the milestone only after the server rules are clear 
 These are required for the full learning product. They are built after the first milestone, not inside the 42-day plan except as reading.
 
 - **Environmental compliance.** Obligations, waste streams, and spills create findings and actions in the same workflow. Applicability is stored on the obligation. A materials duty is an obligation in the materials program area. The product tracks these records. It does not issue a compliance determination.
-- **Occupational health.** Synthetic exposure-group counts and program status. No individual health information.
+- **Occupational health.** Synthetic exposure-group counts and the percent of required exams complete. No individual health information.
 - **Executive view.** Counts a council would ask about, drawn from records already in the system. AR 385-10 paragraph 1-17 is the menu of questions. The view is not a doctrinal readiness score.
 - **ASOHMS practice records.** Six objectives and placeholder criteria. Practice statuses are local notes. The product will say on the screen that it does not produce an official Army assessment.
 - **AI assistance.** Explanations and questions with record citations and source-register citations. No authority to change a record. Details are in the [security note](09-security-ai-governance.md).

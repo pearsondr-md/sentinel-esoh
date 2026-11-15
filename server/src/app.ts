@@ -369,6 +369,40 @@ export function createApp(dbPath: string): { app: express.Express; db: DatabaseS
     res.status(201).json(publicFinding(finding));
   }));
 
+  app.get("/exposure-groups", wrap((req, res) => {
+    const actor = requireActor(db, req);
+    res.json({ exposureGroups: listScoped(db, actor, "exposure_group", "created_at DESC").map(publicExposure) });
+  }));
+
+  app.post("/exposure-groups", wrap((req, res) => {
+    const actor = requireActor(db, req);
+    requireRole(actor, "safety officer");
+    const fields = requireExposure(bodyOf(req));
+    const id = randomUUID();
+    db.prepare(
+      `INSERT INTO exposure_group (
+         id, organization_id, agent, shop, control_method, headcount, exam_completion_percent, created_at, created_by
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      id,
+      homeOrg(actor),
+      fields.agent,
+      fields.shop,
+      fields.controlMethod,
+      fields.headcount,
+      fields.examCompletionPercent,
+      now(),
+      actor.id,
+    );
+    res.status(201).json(publicExposure(getOne(db, "exposure_group", id)));
+  }));
+
+  app.get("/exposure-groups/:id", wrap((req, res) => {
+    const actor = requireActor(db, req);
+    const group = mustGet(db, "exposure_group", routeId(req.params.id), actor);
+    res.json({ exposureGroup: publicExposure(group) });
+  }));
+
   app.post("/observations/:id/findings", wrap((req, res) => {
     const actor = requireActor(db, req);
     requireRole(actor, "safety officer");
@@ -787,6 +821,42 @@ function rejectProgramArea(body: Record<string, unknown>): void {
   }
 }
 
+const EXPOSURE_FIELDS = ["agent", "shop", "controlMethod", "headcount", "examCompletionPercent"];
+
+function requireExposure(body: Record<string, unknown>): {
+  agent: string;
+  shop: string;
+  controlMethod: string;
+  headcount: number;
+  examCompletionPercent: number;
+} {
+  for (const key of Object.keys(body)) {
+    if (!EXPOSURE_FIELDS.includes(key)) {
+      throw new HttpError(400, `${key} is not stored on an exposure group`);
+    }
+  }
+  const headcount = body.headcount;
+  if (typeof headcount !== "number" || !Number.isInteger(headcount) || headcount < 0) {
+    throw new HttpError(400, "headcount must be a whole number of people");
+  }
+  const examCompletionPercent = body.examCompletionPercent;
+  if (
+    typeof examCompletionPercent !== "number" ||
+    !Number.isFinite(examCompletionPercent) ||
+    examCompletionPercent < 0 ||
+    examCompletionPercent > 100
+  ) {
+    throw new HttpError(400, "examCompletionPercent must be from 0 to 100");
+  }
+  return {
+    agent: requireString(body, "agent"),
+    shop: requireString(body, "shop"),
+    controlMethod: requireString(body, "controlMethod"),
+    headcount,
+    examCompletionPercent,
+  };
+}
+
 function rejectCompliance(body: Record<string, unknown>): void {
   for (const key of ["compliant", "compliance", "determination", "met", "inCompliance"]) {
     if (key in body) {
@@ -1063,6 +1133,18 @@ function publicSpill(row: Record<string, unknown>) {
     organizationId: row.organization_id,
     description: row.description,
     reportedTo: row.reported_to,
+  };
+}
+
+function publicExposure(row: Record<string, unknown>) {
+  return {
+    id: row.id,
+    organizationId: row.organization_id,
+    agent: row.agent,
+    shop: row.shop,
+    controlMethod: row.control_method,
+    headcount: row.headcount,
+    examCompletionPercent: row.exam_completion_percent,
   };
 }
 
