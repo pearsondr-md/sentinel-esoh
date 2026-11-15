@@ -13,6 +13,21 @@ export const HIERARCHY_STEPS = [
   "administrative",
   "PPE",
 ] as const;
+export const PROGRAM_AREAS = [
+  "permits and legal duties",
+  "air",
+  "water",
+  "materials",
+  "waste",
+  "tanks and spills",
+  "pollution prevention",
+  "cultural resources",
+  "natural resources",
+  "cleanup",
+  "operational noise",
+  "munitions on ranges",
+] as const;
+export const WASTE_KINDS = ["subtitle C", "other"] as const;
 
 export type ProbabilityCode = (typeof PROBABILITY_CODES)[number];
 export type SeverityCode = (typeof SEVERITY_CODES)[number];
@@ -21,6 +36,8 @@ export type AssessmentPhase = (typeof ASSESSMENT_PHASES)[number];
 export type RiskDecisionValue = (typeof DECISIONS)[number];
 export type DurationText = (typeof DURATIONS)[number];
 export type FindingStatus = (typeof FINDING_STATUSES)[number];
+export type ProgramArea = (typeof PROGRAM_AREAS)[number];
+export type WasteKind = (typeof WASTE_KINDS)[number];
 
 export type Finding = {
   id: string;
@@ -29,5 +46,5 @@ export type Finding = {
   status: FindingStatus;
   sourceObservationId: string | null;
   sourceReportId: string | null;
-  programArea: null;
+  programArea: ProgramArea | null;
 };

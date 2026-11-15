@@ -100,3 +100,5 @@ Continue at about one hour a day, one capability at a time: environmental obliga
 - No override, waiver, or delegation feature until a paragraph for it has been checked.
 - No invented mishap class or ASOHMS criterion.
 - When a PDF and these notes disagree, the PDF wins, and the source register gets a correction.
+- A failed workflow test, a dependency advisory, or a source-register row that is past its review is an alert that a person must decide. None of the three rewrites a rule by itself.
+- Later capabilities stay modules in the one server. A separate service waits until the [governance section](09-security-ai-governance.md) of the security note allows the split.

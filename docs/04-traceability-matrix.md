@@ -46,7 +46,7 @@ The first build implements one row in software: the core operational path. Later
 - Natural resources: discussed with environmental asset management. Pest management is chapter 5. Operational noise is chapter 14. Cleanup is chapter 12. Munitions on ranges is chapter 8.
 - Corrective action and management review: chapters 16 and 17.
 
-**Limit.** The first milestone does not build these screens. The finding and action records will already have a place to record a program area so a later environmental finding can reuse them. SENTINEL will not decide that a permit condition is met. Legal coordination, which AR 200-1 requires for permits, enforcement, and spill liability, stays a human step.
+**Limit.** Obligations, waste streams, and spills are tracked, and each can open a finding on the existing action path. The rest of the chapter map is not a screen yet. SENTINEL will not decide that a permit condition is met. Legal coordination, which AR 200-1 requires for permits, enforcement, and spill liability, stays a human step.
 
 ## Occupational health
 

@@ -2,7 +2,7 @@
 
 The architecture stays inside the learning curriculum: React, TypeScript, Tailwind CSS, Node.js, Express, and SQLite. Git holds the history. Tests come with the first workflow, in small pieces, so a rule can be checked without a large test framework discussion on day one.
 
-No message bus, no separate AI database, no container platform, and no second backend are part of this design. Those tools solve problems this project does not have yet.
+No message bus, no separate AI database, no container platform, and no second backend are part of this design. Those tools solve problems this project does not have yet. Later capabilities stay modules inside this one application. The conditions for ever splitting a module into its own process are in the [governance section](09-security-ai-governance.md) of the security note. A split that adds operators is not a modernization.
 
 ## What each piece is for
 

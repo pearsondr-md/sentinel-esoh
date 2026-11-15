@@ -43,7 +43,7 @@ A minimal screen is part of the milestone only after the server rules are clear 
 
 These are required for the full learning product. They are built after the first milestone, not inside the 42-day plan except as reading.
 
-- **Environmental compliance.** Obligations, waste, materials, and spills that create findings and actions in the same workflow. Applicability differs by place. The product tracks obligations. It does not issue a compliance determination.
+- **Environmental compliance.** Obligations, waste streams, and spills create findings and actions in the same workflow. Applicability is stored on the obligation. A materials duty is an obligation in the materials program area. The product tracks these records. It does not issue a compliance determination.
 - **Occupational health.** Synthetic exposure-group counts and program status. No individual health information.
 - **Executive view.** Counts a council would ask about, drawn from records already in the system. AR 385-10 paragraph 1-17 is the menu of questions. The view is not a doctrinal readiness score.
 - **ASOHMS practice records.** Six objectives and placeholder criteria. Practice statuses are local notes. The product will say on the screen that it does not produce an official Army assessment.
@@ -57,6 +57,7 @@ These are required for the full learning product. They are built after the first
 - The interface uses Army terms where the publication uses them (mishap, hazard, control, residual risk) and explains them in plain language the first time a person meets them.
 - The visual design uses black and gold and SENTINEL’s own logo. Official Army marks are not reproduced. Fields are labeled, and the page can be operated from the keyboard.
 - Another organization could reuse the workflow by configuring organization names and roles. The risk matrix and the authority rules stay sourced. They are not silently replaced with a generic score.
+- Changes follow the governance section of the [security note](09-security-ai-governance.md). A failed rule test, a dependency advisory, and a source-register review that is due are the alerts. A person accepts the change. Later capabilities remain modules in the one server until that note's conditions for a split are met.
 
 ## Outside this product
 

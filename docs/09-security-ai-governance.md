@@ -55,4 +55,51 @@ This list is a gate, not a design for this repository.
 - A configuration-management process so doctrine tables (the matrix and Table 4-1) change only when a publication change is verified.
 - Logging, backup, and incident response appropriate to the real data. Synthetic classroom data does not satisfy that requirement by analogy.
 
-Until those gates are actually passed by the government organizations that own them, SENTINEL remains a training application.
+Until those gates are actually passed by the government organizations that own them, SENTINEL remains a synthetic system. It is not an operational Army system.
+
+## Governance for a small support team
+
+Governance is the set of decisions this repository already records, and the rule for who may change them. The aim is that a later team can be smaller because the checks run on their own and a person is asked only for a decision the checks are not allowed to make.
+
+The pieces already in the notes are the governance record:
+
+- The [doctrine baseline](01-doctrine-baseline.md) keeps the authority layers apart. A pamphlet is not a statute.
+- The [source register](02-source-register.md) says which sentences were seen, on which date, and which facts are still unresolved. An unresolved fact is not a design rule.
+- The [traceability matrix](04-traceability-matrix.md) may require only what that register verified.
+- The [workflow](08-workflow.md) keeps the matrix result, the human decision, and the authority check as separate records.
+- The [architecture](06-architecture.md) keeps one server, one database file, and no second backend.
+- The controls earlier in this note are the operating rules for identity, organization scope, secrets, and the audit trail.
+
+Two acceptances stay separate. A commander accepts or rejects residual risk on a hazard. An authorizing official, in a real deployment, would accept the risk of operating the system. This repository does not perform that second acceptance. The Risk Management Framework items above remain a gate. They are not a screen in the product.
+
+### What a person still decides
+
+- A doctrine table changes only after the publication is opened again and the source register is corrected. When a PDF and these notes disagree, the PDF wins.
+- A code change is kept only when a person can explain it and the tests for that rule pass.
+- A library is added only when the architecture note already names it.
+- A new capability follows the order in the [product requirements](05-prd.md) and attaches to the finding and the action that already exist.
+- A security advisory is a required review. Installing the update is a person's decision. The advisory does not rewrite a matrix cell, an authority row, or a finding.
+
+### What runs without a person watching
+
+- The workflow tests are the alert that a rule broke. A failed test is the notice that a change is required. The test names the rule. It does not supply a replacement rule.
+- Dependency review is the alert for a security update. Each package folder is checked against its own lockfile. A finding becomes a review item. It does not merge itself.
+- Publication currency is the alert for a doctrine change. The source register already requires the official page to be opened again before a later citation. That review is dated. An unresolved row stays unresolved.
+- A result the server is built to refuse, such as a blocked authority check or a person verifying their own action, is stored or returned as that result. It is not treated as an outage. An outage is a failed health check or a failed test run.
+
+### Modules, not a platform of services
+
+Environmental obligations, exposure-group counts, a council count, ASOHMS placeholders, and a server-side model call are modules inside the same Express application. They use the same session check and the same organization boundary. They hang from the finding, the hazard, and the action. They do not start a second workflow.
+
+A separate service is another thing to patch, monitor, and authorize. This project does not add one while one process can hold the module. A split is allowed only when all of the following are written down in the same change:
+
+- The module is one of those named later capabilities.
+- It cannot set a matrix level, record an acceptance, assign work, verify, or close a record except through the server functions that already do those things.
+- A test shows that a token for one unit still cannot read another unit's records.
+- The source register and this note are updated with the change.
+
+No message bus, container platform, or second database is part of that split until the architecture note is changed for a reason this list does not already cover.
+
+### What this plan does not claim
+
+This is how the repository is allowed to change. It is not an Authority to Operate, not an Army configuration-control board, and not a claim that publication monitoring already runs on its own.

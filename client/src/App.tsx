@@ -1,16 +1,19 @@
 import { useEffect, useState, type FormEvent } from "react";
 import {
   api,
+  type EmployeeReport,
   type FindingChain,
   type Inspection,
   type OrgUser,
   type Session,
 } from "./api.ts";
+import { EnvironmentalDetail, EnvironmentalLists, type EnvironmentalSelection } from "./Environmental.tsx";
 
 const ACCOUNTS = [
   ["Shop 2 safety officer", "shop2.safety@camp-sentinel.example"],
   ["Shop 2 commander", "shop2.commander@camp-sentinel.example"],
   ["Shop 2 supervisor", "shop2.supervisor@camp-sentinel.example"],
+  ["Shop 2 employee", "shop2.employee@camp-sentinel.example"],
 ] as const;
 
 const PROBABILITY = [
@@ -68,7 +71,7 @@ export default function App() {
               <p className="text-xs font-semibold tracking-widest text-[#ffcc00]">CAMP SENTINEL</p>
               <h1 className="text-2xl font-semibold leading-none">SENTINEL</h1>
               <p className="mt-1 max-w-2xl text-sm text-white">
-                Safety and occupational health records for the shop, the safety officer, and the commander.
+                Safety and occupational health records for the person who reports a hazard, the shop, the safety officer, and the commander.
               </p>
             </div>
           </div>
@@ -141,7 +144,10 @@ function SignIn({ onSignIn }: { onSignIn: (session: Session) => void }) {
 
 function Workspace({ session }: { session: Session }) {
   const [inspections, setInspections] = useState<Inspection[]>([]);
+  const [reports, setReports] = useState<EmployeeReport[]>([]);
   const [inspectionId, setInspectionId] = useState<string | null>(null);
+  const [reportId, setReportId] = useState<string | null>(null);
+  const [environmental, setEnvironmental] = useState<EnvironmentalSelection | null>(null);
   const [findingId, setFindingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -150,44 +156,99 @@ function Workspace({ session }: { session: Session }) {
     setInspections(body.inspections);
   }
 
+  async function refreshReports() {
+    const body = await api.reports(session.token);
+    setReports(body.employeeReports);
+  }
+
   useEffect(() => {
-    refreshInspections().catch((caught: unknown) => setError(messageOf(caught)));
+    Promise.all([refreshInspections(), refreshReports()]).catch((caught: unknown) => setError(messageOf(caught)));
   }, [session.token]);
 
   return (
     <div className="grid gap-8 lg:grid-cols-[18rem_1fr]">
-      <section>
-        <h2 className="mb-3 text-lg font-semibold">Inspections</h2>
-        {error ? <p className="mb-3 text-sm text-red-800">{error}</p> : null}
-        <ul className="space-y-2">
-          {inspections.map((inspection) => (
-            <li key={inspection.id}>
-              <button
-                className={`w-full rounded border px-3 py-2 text-left ${inspection.id === inspectionId ? "border-stone-900 bg-white" : "border-stone-300 bg-stone-50"}`}
-                type="button"
-                onClick={() => {
-                  setInspectionId(inspection.id);
-                  setFindingId(null);
-                }}
-              >
-                <span className="block font-medium">{inspection.shopName}</span>
-                <span className="text-sm text-stone-600">
-                  {inspection.inspectedOn} · {inspection.status}
-                </span>
-              </button>
-            </li>
-          ))}
-        </ul>
-        {session.roles.includes("safety officer") ? (
-          <NewInspection
+      <section className="space-y-8">
+        <div>
+          <h2 className="mb-3 text-lg font-semibold">Inspections</h2>
+          {error ? <p className="mb-3 text-sm text-red-800">{error}</p> : null}
+          <ul className="space-y-2">
+            {inspections.map((inspection) => (
+              <li key={inspection.id}>
+                <button
+                  className={`w-full rounded border px-3 py-2 text-left ${inspection.id === inspectionId ? "border-stone-900 bg-white" : "border-stone-300 bg-stone-50"}`}
+                  type="button"
+                  onClick={() => {
+                    setInspectionId(inspection.id);
+                    setReportId(null);
+                    setEnvironmental(null);
+                    setFindingId(null);
+                  }}
+                >
+                  <span className="block font-medium">{inspection.shopName}</span>
+                  <span className="text-sm text-stone-600">
+                    {inspection.inspectedOn} · {inspection.status}
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+          {session.roles.includes("safety officer") ? (
+            <NewInspection
+              token={session.token}
+              onCreated={(inspection) => {
+                setInspectionId(inspection.id);
+                setReportId(null);
+                setEnvironmental(null);
+                setFindingId(null);
+                refreshInspections().catch((caught: unknown) => setError(messageOf(caught)));
+              }}
+            />
+          ) : null}
+        </div>
+        <div>
+          <h2 className="mb-3 text-lg font-semibold">Written reports</h2>
+          <ul className="space-y-2">
+            {reports.map((report) => (
+              <li key={report.id}>
+                <button
+                  className={`w-full rounded border px-3 py-2 text-left ${report.id === reportId ? "border-stone-900 bg-white" : "border-stone-300 bg-stone-50"}`}
+                  type="button"
+                  onClick={() => {
+                    setReportId(report.id);
+                    setInspectionId(null);
+                    setEnvironmental(null);
+                    setFindingId(null);
+                  }}
+                >
+                  <span className="block font-medium">{report.text}</span>
+                  <span className="text-sm text-stone-600">
+                    {report.showName && report.reporterDisplayName ? report.reporterDisplayName : "Name withheld"}
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+          <ReportForm
             token={session.token}
-            onCreated={(inspection) => {
-              setInspectionId(inspection.id);
+            onCreated={(report) => {
+              setReportId(report.id);
+              setInspectionId(null);
+              setEnvironmental(null);
               setFindingId(null);
-              refreshInspections().catch((caught: unknown) => setError(messageOf(caught)));
+              refreshReports().catch((caught: unknown) => setError(messageOf(caught)));
             }}
           />
-        ) : null}
+        </div>
+        <EnvironmentalLists
+            session={session}
+            selected={environmental}
+            onSelect={(selection) => {
+              setEnvironmental(selection);
+              setInspectionId(null);
+              setReportId(null);
+              setFindingId(null);
+            }}
+          />
       </section>
       {inspectionId ? (
         <InspectionDetail
@@ -196,8 +257,20 @@ function Workspace({ session }: { session: Session }) {
           findingId={findingId}
           onSelectFinding={setFindingId}
         />
+      ) : reportId ? (
+        <ReportDetail
+          session={session}
+          reportId={reportId}
+          findingId={findingId}
+          onSelectFinding={setFindingId}
+        />
+      ) : environmental ? (
+        <div className="space-y-6">
+          <EnvironmentalDetail session={session} selection={environmental} onSelectFinding={setFindingId} />
+          {findingId ? <FindingRecord session={session} findingId={findingId} /> : null}
+        </div>
       ) : (
-        <p className="text-stone-600">Choose an inspection, or start one for your shop.</p>
+        <p className="text-stone-600">Choose an inspection, a written report, or an environmental record.</p>
       )}
     </div>
   );
@@ -411,6 +484,22 @@ function FindingRecord({ session, findingId }: { session: Session; findingId: st
             <li key={action.id} className="rounded border border-stone-200 p-3">
               <p>{action.description}</p>
               <p className="text-sm text-stone-600">Status: {action.status}</p>
+              <ul className="mt-2 space-y-1 text-sm">
+                {chain.evidence
+                  .filter((item) => item.actionId === action.id)
+                  .map((item) => (
+                    <li key={item.id}>
+                      Evidence: {item.fileName}. SHA-256 {item.contentHash}
+                    </li>
+                  ))}
+              </ul>
+              {action.ownerUserId === session.userId ? (
+                <EvidenceForm
+                  token={session.token}
+                  actionId={action.id}
+                  onCreated={() => reload().catch((caught: unknown) => setError(messageOf(caught)))}
+                />
+              ) : null}
               {action.ownerUserId === session.userId && action.status !== "closed" && action.status !== "completed" ? (
                 <button
                   className="mt-2 rounded bg-stone-900 px-3 py-1 text-sm text-white"
@@ -593,23 +682,131 @@ function ObservationForm({ token, inspectionId, onCreated }: { token: string; in
   );
 }
 
+function ReportForm({ token, onCreated }: { token: string; onCreated: (report: EmployeeReport) => void }) {
+  const [text, setText] = useState("");
+  const [showName, setShowName] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  return (
+    <form
+      className="mt-4 space-y-2"
+      onSubmit={(event) => {
+        event.preventDefault();
+        api
+          .createReport(token, text, showName)
+          .then((report) => {
+            setText("");
+            setShowName(false);
+            onCreated(report);
+          })
+          .catch((caught: unknown) => setError(messageOf(caught)));
+      }}
+    >
+      <h3 className="font-medium">File a written report</h3>
+      <label className="block text-sm font-medium">
+        What you saw
+        <textarea className="mt-1 w-full rounded border border-stone-300 bg-white px-2 py-1 font-normal" value={text} onChange={(event) => setText(event.target.value)} />
+      </label>
+      <label className="block text-sm">
+        <input className="mr-2" type="checkbox" checked={showName} onChange={(event) => setShowName(event.target.checked)} />
+        Show my name on the shared log
+      </label>
+      {error ? <p className="text-sm text-red-800">{error}</p> : null}
+      <button className="rounded bg-stone-900 px-3 py-1 text-sm text-white" type="submit">
+        File report
+      </button>
+    </form>
+  );
+}
+
+function ReportDetail({
+  session,
+  reportId,
+  findingId,
+  onSelectFinding,
+}: {
+  session: Session;
+  reportId: string;
+  findingId: string | null;
+  onSelectFinding: (id: string) => void;
+}) {
+  const [detail, setDetail] = useState<Awaited<ReturnType<typeof api.report>> | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function reload() {
+    setDetail(await api.report(session.token, reportId));
+  }
+
+  useEffect(() => {
+    reload().catch((caught: unknown) => setError(messageOf(caught)));
+  }, [reportId, session.token]);
+
+  if (!detail) {
+    return <p>{error ?? "Loading the report."}</p>;
+  }
+
+  return (
+    <section className="space-y-6">
+      <article className="rounded border border-stone-300 bg-white p-4">
+        <h2 className="text-2xl font-semibold">Written report</h2>
+        <p className="mt-2">{detail.report.text}</p>
+        <p className="mt-2 text-sm text-stone-600">
+          {detail.report.showName && detail.report.reporterDisplayName
+            ? `Filed by ${detail.report.reporterDisplayName}`
+            : "The reporter's name is withheld on this log."}
+        </p>
+        <ul className="mt-3 space-y-2">
+          {detail.findings.map((finding) => (
+            <li key={finding.id}>
+              <button className="text-left underline" type="button" onClick={() => onSelectFinding(finding.id)}>
+                {finding.originalText}
+              </button>
+              <span className="ml-2 text-sm text-stone-500">{finding.status}</span>
+            </li>
+          ))}
+        </ul>
+        {session.roles.includes("safety officer") ? (
+          <FindingForm
+            key={reportId}
+            token={session.token}
+            reportId={reportId}
+            initialText={detail.report.text}
+            onCreated={(finding) => {
+              onSelectFinding(finding.id);
+              reload().catch((caught: unknown) => setError(messageOf(caught)));
+            }}
+          />
+        ) : null}
+      </article>
+      {error ? <p className="text-sm text-red-800">{error}</p> : null}
+      {findingId ? <FindingRecord session={session} findingId={findingId} /> : null}
+    </section>
+  );
+}
+
 function FindingForm({
   token,
   observationId,
+  reportId,
+  initialText = "",
   onCreated,
 }: {
   token: string;
-  observationId: string;
+  observationId?: string;
+  reportId?: string;
+  initialText?: string;
   onCreated: (finding: { id: string }) => void;
 }) {
-  const [originalText, setOriginalText] = useState("");
+  const [originalText, setOriginalText] = useState(initialText);
   const [error, setError] = useState<string | null>(null);
   return (
     <form
       className="mt-3 space-y-2"
       onSubmit={(event) => {
         event.preventDefault();
-        api.addFinding(token, observationId, originalText).then(onCreated).catch((caught: unknown) => setError(messageOf(caught)));
+        const saved = reportId
+          ? api.addFindingFromReport(token, reportId, originalText)
+          : api.addFinding(token, observationId ?? "", originalText);
+        saved.then(onCreated).catch((caught: unknown) => setError(messageOf(caught)));
       }}
     >
       <label className="block text-sm font-medium">
@@ -778,6 +975,56 @@ function ActionForm({
       </button>
     </form>
   );
+}
+
+function EvidenceForm({ token, actionId, onCreated }: { token: string; actionId: string; onCreated: () => void }) {
+  const [error, setError] = useState<string | null>(null);
+  return (
+    <form
+      className="mt-2 space-y-2"
+      onSubmit={(event) => {
+        event.preventDefault();
+        const input = event.currentTarget.elements.namedItem("evidenceFile");
+        const file = input instanceof HTMLInputElement ? input.files?.[0] : undefined;
+        if (!file) {
+          setError("Choose a file");
+          return;
+        }
+        if (file.size > 1_000_000) {
+          setError("The evidence file must be 1 MB or smaller");
+          return;
+        }
+        fileToBase64(file)
+          .then((contentBase64) => api.addEvidence(token, actionId, file.name, contentBase64))
+          .then(() => {
+            if (input instanceof HTMLInputElement) {
+              input.value = "";
+            }
+            onCreated();
+          })
+          .catch((caught: unknown) => setError(messageOf(caught)));
+      }}
+    >
+      <label className="block text-sm font-medium">
+        Evidence file
+        <input className="mt-1 block font-normal" name="evidenceFile" type="file" />
+      </label>
+      <p className="text-sm text-stone-600">The record keeps the file name and a SHA-256 hash. The file itself is not stored.</p>
+      {error ? <p className="text-sm text-red-800">{error}</p> : null}
+      <button className="rounded bg-stone-900 px-3 py-1 text-sm text-white" type="submit">
+        Attach evidence
+      </button>
+    </form>
+  );
+}
+
+async function fileToBase64(file: File): Promise<string> {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  let binary = "";
+  for (let index = 0; index < bytes.length; index += 0x8000) {
+    binary += String.fromCharCode(...bytes.subarray(index, index + 0x8000));
+  }
+  return btoa(binary);
 }
 
 function VerifyForm({ token, actionId, onCreated }: { token: string; actionId: string; onCreated: () => void }) {

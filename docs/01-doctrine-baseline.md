@@ -76,7 +76,7 @@ The 2026 contents run from environmental policy and planning through asset manag
 
 Environmental duties follow statutes, federal and state regulations, permits, and, overseas, country-specific Final Governing Standards. AR 200-1 says permits, enforcement, and spills need early coordination with legal counsel. SENTINEL can track an obligation and a finding. It cannot declare that an installation is in compliance.
 
-Environmental workflows are a later capability. The data model leaves room for them so the first safety workflow does not have to be redesigned. See the [traceability matrix](04-traceability-matrix.md).
+An obligation, a waste stream, and a spill are tracked on the same finding and action as a safety record. SENTINEL still cannot declare that an installation is in compliance. See the [traceability matrix](04-traceability-matrix.md).
 
 ## Occupational health
 

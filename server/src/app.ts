@@ -1,4 +1,4 @@
-import { randomBytes, randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import express, { type NextFunction, type Request, type Response } from "express";
 import type { DatabaseSync } from "node:sqlite";
 import {
@@ -6,6 +6,8 @@ import {
   DECISIONS,
   DURATIONS,
   HIERARCHY_STEPS,
+  PROGRAM_AREAS,
+  WASTE_KINDS,
   type DurationText,
   type FindingStatus,
   type MatrixLevel,
@@ -49,7 +51,7 @@ type FindingRow = {
 export function createApp(dbPath: string): { app: express.Express; db: DatabaseSync } {
   const db = openDatabase(dbPath);
   const app = express();
-  app.use(express.json());
+  app.use(express.json({ limit: "2mb" }));
   app.use((req, res, next) => {
     res.setHeader("Access-Control-Allow-Origin", "http://localhost:5173");
     res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
@@ -195,7 +197,9 @@ export function createApp(dbPath: string): { app: express.Express; db: DatabaseS
     const body = bodyOf(req);
     const text = requireString(body, "text");
     const showName = body.showName === true;
-    const reporterDisplayName = showName ? optionalString(body, "reporterDisplayName") : null;
+    const reporterDisplayName = showName
+      ? (optionalString(body, "reporterDisplayName") ?? actor.displayName)
+      : null;
     const id = randomUUID();
     const organizationId = homeOrg(actor);
     db.prepare(
@@ -209,6 +213,160 @@ export function createApp(dbPath: string): { app: express.Express; db: DatabaseS
     const actor = requireActor(db, req);
     const rows = listScoped(db, actor, "employee_report", "created_at DESC");
     res.json({ employeeReports: rows.map(publicReport) });
+  }));
+
+  app.get("/employee-reports/:id", wrap((req, res) => {
+    const actor = requireActor(db, req);
+    const report = mustGet(db, "employee_report", routeId(req.params.id), actor);
+    const findings = db
+      .prepare("SELECT * FROM finding WHERE source_report_id = ? ORDER BY created_at")
+      .all(report.id) as FindingRow[];
+    res.json({
+      report: publicReport(report),
+      findings: findings.map(publicFinding),
+    });
+  }));
+
+  app.get("/obligations", wrap((req, res) => {
+    const actor = requireActor(db, req);
+    res.json({ obligations: listScoped(db, actor, "obligation", "created_at DESC").map(publicObligation) });
+  }));
+
+  app.post("/obligations", wrap((req, res) => {
+    const actor = requireActor(db, req);
+    requireRole(actor, "safety officer");
+    const body = bodyOf(req);
+    rejectCompliance(body);
+    const id = randomUUID();
+    const organizationId = homeOrg(actor);
+    db.prepare(
+      `INSERT INTO obligation (id, organization_id, title, applicability_text, program_area, created_at, created_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      id,
+      organizationId,
+      requireString(body, "title"),
+      requireString(body, "applicabilityText"),
+      requireEnum(body, "programArea", [...PROGRAM_AREAS]),
+      now(),
+      actor.id,
+    );
+    res.status(201).json(publicObligation(getOne(db, "obligation", id)));
+  }));
+
+  app.get("/obligations/:id", wrap((req, res) => {
+    const actor = requireActor(db, req);
+    const obligation = mustGet(db, "obligation", routeId(req.params.id), actor);
+    res.json({ obligation: publicObligation(obligation), findings: linkedFindings(db, "obligation_finding", "obligation_id", obligation.id) });
+  }));
+
+  app.post("/obligations/:id/findings", wrap((req, res) => {
+    const actor = requireActor(db, req);
+    requireRole(actor, "safety officer");
+    const obligation = mustGet(db, "obligation", routeId(req.params.id), actor);
+    const finding = insertFinding(db, actor, {
+      organizationId: obligation.organization_id,
+      originalText: requireOriginalText(bodyOf(req)),
+      sourceObservationId: null,
+      sourceReportId: null,
+      programArea: String(obligation.program_area),
+    });
+    db.prepare("INSERT INTO obligation_finding (obligation_id, finding_id) VALUES (?, ?)").run(obligation.id, finding.id);
+    res.status(201).json(publicFinding(finding));
+  }));
+
+  app.get("/waste-streams", wrap((req, res) => {
+    const actor = requireActor(db, req);
+    res.json({ wasteStreams: listScoped(db, actor, "waste_stream", "created_at DESC").map(publicWaste) });
+  }));
+
+  app.post("/waste-streams", wrap((req, res) => {
+    const actor = requireActor(db, req);
+    requireRole(actor, "safety officer");
+    const body = bodyOf(req);
+    rejectCompliance(body);
+    const obligationId = optionalString(body, "obligationId");
+    if (obligationId) {
+      mustGet(db, "obligation", obligationId, actor);
+    }
+    const id = randomUUID();
+    const organizationId = homeOrg(actor);
+    db.prepare(
+      `INSERT INTO waste_stream (id, organization_id, obligation_id, name, waste_kind, created_at, created_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      id,
+      organizationId,
+      obligationId,
+      requireString(body, "name"),
+      requireEnum(body, "wasteKind", [...WASTE_KINDS]),
+      now(),
+      actor.id,
+    );
+    res.status(201).json(publicWaste(getOne(db, "waste_stream", id)));
+  }));
+
+  app.get("/waste-streams/:id", wrap((req, res) => {
+    const actor = requireActor(db, req);
+    const waste = mustGet(db, "waste_stream", routeId(req.params.id), actor);
+    res.json({ wasteStream: publicWaste(waste), findings: linkedFindings(db, "waste_stream_finding", "waste_stream_id", waste.id) });
+  }));
+
+  app.post("/waste-streams/:id/findings", wrap((req, res) => {
+    const actor = requireActor(db, req);
+    requireRole(actor, "safety officer");
+    const waste = mustGet(db, "waste_stream", routeId(req.params.id), actor);
+    const finding = insertFinding(db, actor, {
+      organizationId: waste.organization_id,
+      originalText: requireOriginalText(bodyOf(req)),
+      sourceObservationId: null,
+      sourceReportId: null,
+      programArea: "waste",
+    });
+    db.prepare("INSERT INTO waste_stream_finding (waste_stream_id, finding_id) VALUES (?, ?)").run(waste.id, finding.id);
+    res.status(201).json(publicFinding(finding));
+  }));
+
+  app.get("/spills", wrap((req, res) => {
+    const actor = requireActor(db, req);
+    res.json({ spills: listScoped(db, actor, "spill", "created_at DESC").map(publicSpill) });
+  }));
+
+  app.post("/spills", wrap((req, res) => {
+    const actor = requireActor(db, req);
+    requireRole(actor, "safety officer");
+    const body = bodyOf(req);
+    rejectCompliance(body);
+    if ("mishapId" in body && body.mishapId !== null) {
+      throw new HttpError(400, "mishap records are not in this build");
+    }
+    const id = randomUUID();
+    db.prepare(
+      `INSERT INTO spill (id, organization_id, description, reported_to, created_at, created_by)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+    ).run(id, homeOrg(actor), requireString(body, "description"), requireString(body, "reportedTo"), now(), actor.id);
+    res.status(201).json(publicSpill(getOne(db, "spill", id)));
+  }));
+
+  app.get("/spills/:id", wrap((req, res) => {
+    const actor = requireActor(db, req);
+    const spill = mustGet(db, "spill", routeId(req.params.id), actor);
+    res.json({ spill: publicSpill(spill), findings: linkedFindings(db, "spill_finding", "spill_id", spill.id) });
+  }));
+
+  app.post("/spills/:id/findings", wrap((req, res) => {
+    const actor = requireActor(db, req);
+    requireRole(actor, "safety officer");
+    const spill = mustGet(db, "spill", routeId(req.params.id), actor);
+    const finding = insertFinding(db, actor, {
+      organizationId: spill.organization_id,
+      originalText: requireOriginalText(bodyOf(req)),
+      sourceObservationId: null,
+      sourceReportId: null,
+      programArea: "tanks and spills",
+    });
+    db.prepare("INSERT INTO spill_finding (spill_id, finding_id) VALUES (?, ?)").run(spill.id, finding.id);
+    res.status(201).json(publicFinding(finding));
   }));
 
   app.post("/observations/:id/findings", wrap((req, res) => {
@@ -436,9 +594,20 @@ export function createApp(dbPath: string): { app: express.Express; db: DatabaseS
   app.post("/actions/:id/evidence", wrap((req, res) => {
     const actor = requireActor(db, req);
     const action = mustGet(db, "corrective_action", routeId(req.params.id), actor);
+    if (action.owner_user_id !== actor.id) {
+      throw new HttpError(403, "only the assigned person can attach evidence");
+    }
     const body = bodyOf(req);
+    const fileName = requireString(body, "fileName");
+    const contentBase64 = requireString(body, "contentBase64").replace(/\s/g, "");
+    if (!/^[A-Za-z0-9+/]+={0,2}$/.test(contentBase64)) {
+      throw new HttpError(400, "contentBase64 is not valid");
+    }
+    const bytes = Buffer.from(contentBase64, "base64");
+    if (bytes.length === 0 || bytes.length > 1_000_000) {
+      throw new HttpError(400, "the evidence file must be between 1 byte and 1 MB");
+    }
     const id = randomUUID();
-    const uploadedAt = now();
     db.prepare(
       `INSERT INTO evidence (id, organization_id, action_id, file_name, content_hash, uploaded_by, uploaded_at)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
@@ -446,12 +615,12 @@ export function createApp(dbPath: string): { app: express.Express; db: DatabaseS
       id,
       action.organization_id,
       action.id,
-      requireString(body, "fileName"),
-      requireString(body, "contentHash"),
+      fileName,
+      createHash("sha256").update(bytes).digest("hex"),
       actor.id,
-      uploadedAt,
+      now(),
     );
-    res.status(201).json(getOne(db, "evidence", id));
+    res.status(201).json(publicEvidence(getOne(db, "evidence", id)));
   }));
 
   app.post("/actions/:id/verifications", wrap((req, res) => {
@@ -614,7 +783,15 @@ function optionalEnum(body: Record<string, unknown>, key: string, allowed: strin
 
 function rejectProgramArea(body: Record<string, unknown>): void {
   if ("programArea" in body && body.programArea !== null) {
-    throw new HttpError(400, "program area is not part of this milestone");
+    throw new HttpError(400, "program area is set from the environmental record");
+  }
+}
+
+function rejectCompliance(body: Record<string, unknown>): void {
+  for (const key of ["compliant", "compliance", "determination", "met", "inCompliance"]) {
+    if (key in body) {
+      throw new HttpError(400, "SENTINEL does not record a compliance determination");
+    }
   }
 }
 
@@ -742,14 +919,24 @@ function insertFinding(
     originalText: string;
     sourceObservationId: string | null;
     sourceReportId: string | null;
+    programArea?: string | null;
   },
 ): FindingRow {
   const id = randomUUID();
   db.prepare(
     `INSERT INTO finding (
        id, organization_id, original_text, status, source_observation_id, source_report_id, program_area, created_at, created_by
-     ) VALUES (?, ?, ?, 'open', ?, ?, NULL, ?, ?)`,
-  ).run(id, input.organizationId, input.originalText, input.sourceObservationId, input.sourceReportId, now(), actor.id);
+     ) VALUES (?, ?, ?, 'open', ?, ?, ?, ?, ?)`,
+  ).run(
+    id,
+    input.organizationId,
+    input.originalText,
+    input.sourceObservationId,
+    input.sourceReportId,
+    input.programArea ?? null,
+    now(),
+    actor.id,
+  );
   recordEvent(db, input.organizationId, "finding", id, null, "open", actor.id, null);
   return mustFinding(db, id, actor);
 }
@@ -831,7 +1018,51 @@ function publicFinding(row: FindingRow) {
     status: row.status,
     sourceObservationId: row.source_observation_id,
     sourceReportId: row.source_report_id,
-    programArea: null,
+    programArea: row.program_area,
+  };
+}
+
+function linkedFindings(db: DatabaseSync, table: string, column: string, id: string): ReturnType<typeof publicFinding>[] {
+  if (!/^[a-z_]+$/.test(table) || !/^[a-z_]+$/.test(column)) {
+    throw new HttpError(500, "server error");
+  }
+  const rows = db
+    .prepare(
+      `SELECT finding.* FROM finding
+       JOIN ${table} link ON link.finding_id = finding.id
+       WHERE link.${column} = ?
+       ORDER BY finding.created_at`,
+    )
+    .all(id) as FindingRow[];
+  return rows.map(publicFinding);
+}
+
+function publicObligation(row: Record<string, unknown>) {
+  return {
+    id: row.id,
+    organizationId: row.organization_id,
+    title: row.title,
+    applicabilityText: row.applicability_text,
+    programArea: row.program_area,
+  };
+}
+
+function publicWaste(row: Record<string, unknown>) {
+  return {
+    id: row.id,
+    organizationId: row.organization_id,
+    obligationId: row.obligation_id,
+    name: row.name,
+    wasteKind: row.waste_kind,
+  };
+}
+
+function publicSpill(row: Record<string, unknown>) {
+  return {
+    id: row.id,
+    organizationId: row.organization_id,
+    description: row.description,
+    reportedTo: row.reported_to,
   };
 }
 
@@ -931,6 +1162,13 @@ function findingChain(db: DatabaseSync, finding: FindingRow) {
         )
         .all(...actionIds)
     : [];
+  const evidence = actionIds.length
+    ? db
+        .prepare(
+          `SELECT * FROM evidence WHERE action_id IN (${actionIds.map(() => "?").join(", ")}) ORDER BY uploaded_at`,
+        )
+        .all(...actionIds)
+    : [];
   return {
     finding: publicFinding(finding),
     hazards: (hazards as Record<string, unknown>[]).map(publicHazard),
@@ -939,6 +1177,7 @@ function findingChain(db: DatabaseSync, finding: FindingRow) {
     decisions: (decisions as Record<string, unknown>[]).map(publicDecision),
     authorityChecks: (authorityChecks as Record<string, unknown>[]).map(publicAuthority),
     actions: (actions as Record<string, unknown>[]).map(publicAction),
+    evidence: (evidence as Record<string, unknown>[]).map(publicEvidence),
     verifications: (verifications as Record<string, unknown>[]).map(publicVerification),
   };
 }
@@ -1001,6 +1240,16 @@ function publicAction(row: Record<string, unknown>) {
     status: row.status,
     kind: row.kind,
     completedBy: row.completed_by,
+  };
+}
+
+function publicEvidence(row: Record<string, unknown>) {
+  return {
+    id: row.id,
+    actionId: row.action_id,
+    fileName: row.file_name,
+    contentHash: row.content_hash,
+    uploadedBy: row.uploaded_by,
   };
 }
 

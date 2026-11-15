@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { createServer, type Server } from "node:http";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -250,7 +251,127 @@ describe("Shop 2 workflow", () => {
     assert.equal(chain.finding.originalText, finding.originalText);
     assert.equal(chain.authorityChecks[0].result, "blocked");
 
-    await api(safety, "GET", "/waste-streams", undefined, 404);
+    const tracked = await api(safety, "GET", "/waste-streams");
+    assert.equal(Array.isArray(tracked.wasteStreams), true);
+  });
+
+  it("hides a reporter's name and keeps evidence on the assigned action", async () => {
+    const employee = await login("shop2.employee@camp-sentinel.example");
+    const safety = await login("shop2.safety@camp-sentinel.example");
+    const supervisor = await login("shop2.supervisor@camp-sentinel.example");
+    const otherUnit = await login("unit2.safety@camp-sentinel.example");
+    const supervisorId = (
+      db.prepare("SELECT id FROM user WHERE email = ?").get("shop2.supervisor@camp-sentinel.example") as {
+        id: string;
+      }
+    ).id;
+
+    const hidden = await api(employee, "POST", "/employee-reports", {
+      text: "The grinder guard is off on the north bench.",
+      showName: false,
+      reporterDisplayName: "Shop 2 Employee",
+    });
+    assert.equal(hidden.reporterDisplayName, null);
+    assert.equal(hidden.showName, false);
+    const stored = db.prepare("SELECT reporter_display_name FROM employee_report WHERE id = ?").get(hidden.id) as {
+      reporter_display_name: string | null;
+    };
+    assert.equal(stored.reporter_display_name, null);
+
+    const listed = await api(safety, "GET", "/employee-reports");
+    const shared = (listed.employeeReports as Array<{ id: string; reporterDisplayName: string | null }>).find(
+      (report) => report.id === hidden.id,
+    );
+    assert.equal(shared?.reporterDisplayName, null);
+    const other = await api(otherUnit, "GET", "/employee-reports");
+    assert.equal(
+      (other.employeeReports as Array<{ id: string }>).some((report) => report.id === hidden.id),
+      false,
+    );
+
+    const finding = await api(safety, "POST", `/employee-reports/${hidden.id}/findings`, {
+      originalText: "Grinder guard missing on the north bench.",
+    });
+    assert.equal(finding.sourceReportId, hidden.id);
+    const detail = await api(safety, "GET", `/employee-reports/${hidden.id}`);
+    assert.equal(detail.report.reporterDisplayName, null);
+    assert.equal(detail.findings[0].originalText, finding.originalText);
+
+    const hazard = await api(safety, "POST", `/findings/${finding.id}/hazards`, {
+      description: "A person can meet the wheel.",
+    });
+    const action = await api(safety, "POST", `/findings/${finding.id}/actions`, {
+      hazardId: hazard.id,
+      description: "Replace the grinder guard.",
+      ownerUserId: supervisorId,
+      kind: "corrective",
+    });
+    const bytes = Buffer.from("guard installed");
+    await api(employee, "POST", `/actions/${action.id}/evidence`, {
+      fileName: "guard.txt",
+      contentBase64: bytes.toString("base64"),
+    }, 403);
+    const evidence = await api(supervisor, "POST", `/actions/${action.id}/evidence`, {
+      fileName: "guard.txt",
+      contentBase64: bytes.toString("base64"),
+    });
+    assert.equal(evidence.fileName, "guard.txt");
+    assert.equal(evidence.contentHash, createHash("sha256").update(bytes).digest("hex"));
+    const chain = await api(safety, "GET", `/findings/${finding.id}`);
+    assert.equal(chain.evidence[0].fileName, "guard.txt");
+    assert.equal(chain.evidence[0].contentHash, evidence.contentHash);
+    assert.equal(chain.finding.originalText, finding.originalText);
+  });
+
+  it("tracks an obligation, a waste stream, and a spill without a compliance determination", async () => {
+    const safety = await login("shop2.safety@camp-sentinel.example");
+    const otherUnit = await login("unit2.safety@camp-sentinel.example");
+    const obligation = await api(safety, "POST", "/obligations", {
+      title: "Shop 2 waste label duty",
+      applicabilityText: "Camp Sentinel shop operating procedure, issued by the garrison environmental office.",
+      programArea: "waste",
+    });
+    assert.equal(obligation.programArea, "waste");
+    assert.equal("compliant" in obligation, false);
+    await api(safety, "POST", "/obligations", {
+      title: "Bad",
+      applicabilityText: "Nowhere",
+      programArea: "waste",
+      compliant: true,
+    }, 400);
+
+    const finding = await api(safety, "POST", `/obligations/${obligation.id}/findings`, {
+      originalText: "North-wall container has no waste label.",
+    });
+    assert.equal(finding.programArea, "waste");
+    assert.equal(finding.originalText, "North-wall container has no waste label.");
+
+    const waste = await api(safety, "POST", "/waste-streams", {
+      name: "Shop 2 used solvent",
+      wasteKind: "subtitle C",
+      obligationId: obligation.id,
+    });
+    assert.equal(waste.wasteKind, "subtitle C");
+    const spill = await api(safety, "POST", "/spills", {
+      description: "A cup of solvent reached the floor.",
+      reportedTo: "Camp Sentinel garrison on-scene coordinator",
+    });
+    assert.equal(spill.reportedTo, "Camp Sentinel garrison on-scene coordinator");
+    await api(safety, "POST", "/spills", {
+      description: "Another spill",
+      reportedTo: "coordinator",
+      mishapId: "not-built",
+    }, 400);
+
+    const columns = db.prepare("PRAGMA table_info(obligation)").all() as Array<{ name: string }>;
+    assert.equal(columns.some((column) => /compliant|determination/i.test(column.name)), false);
+
+    const hidden = await api(otherUnit, "GET", "/obligations");
+    assert.equal(
+      (hidden.obligations as Array<{ id: string }>).some((row) => row.id === obligation.id),
+      false,
+    );
+    await api(otherUnit, "GET", `/obligations/${obligation.id}`, undefined, 404);
   });
 
   it("allows a general officer fixture to accept extremely high risk without changing the cell", async () => {

@@ -212,6 +212,53 @@ CREATE TABLE IF NOT EXISTS verification (
   created_by TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS obligation (
+  id TEXT PRIMARY KEY,
+  organization_id TEXT NOT NULL REFERENCES organization(id),
+  title TEXT NOT NULL,
+  applicability_text TEXT NOT NULL,
+  program_area TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  created_by TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS obligation_finding (
+  obligation_id TEXT NOT NULL REFERENCES obligation(id),
+  finding_id TEXT NOT NULL REFERENCES finding(id),
+  PRIMARY KEY (obligation_id, finding_id)
+);
+
+CREATE TABLE IF NOT EXISTS waste_stream (
+  id TEXT PRIMARY KEY,
+  organization_id TEXT NOT NULL REFERENCES organization(id),
+  obligation_id TEXT REFERENCES obligation(id),
+  name TEXT NOT NULL,
+  waste_kind TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  created_by TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS waste_stream_finding (
+  waste_stream_id TEXT NOT NULL REFERENCES waste_stream(id),
+  finding_id TEXT NOT NULL REFERENCES finding(id),
+  PRIMARY KEY (waste_stream_id, finding_id)
+);
+
+CREATE TABLE IF NOT EXISTS spill (
+  id TEXT PRIMARY KEY,
+  organization_id TEXT NOT NULL REFERENCES organization(id),
+  description TEXT NOT NULL,
+  reported_to TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  created_by TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS spill_finding (
+  spill_id TEXT NOT NULL REFERENCES spill(id),
+  finding_id TEXT NOT NULL REFERENCES finding(id),
+  PRIMARY KEY (spill_id, finding_id)
+);
+
 CREATE TABLE IF NOT EXISTS record_event (
   id TEXT PRIMARY KEY,
   organization_id TEXT NOT NULL REFERENCES organization(id),
@@ -239,6 +286,7 @@ export function openDatabase(dbPath: string): DatabaseSync {
   db.exec("PRAGMA foreign_keys = ON;");
   db.exec(SCHEMA);
   seed(db);
+  ensureShopEmployee(db);
   return db;
 }
 
@@ -311,6 +359,7 @@ function seed(db: DatabaseSync): void {
   insertUserRole.run("ur-2", "user-shop2-commander", "commander", "org-shop-2", now);
   insertUserRole.run("ur-3", "user-shop2-supervisor", "supervisor", "org-shop-2", now);
   insertUserRole.run("ur-4", "user-unit2-safety", "safety officer", "org-unit-2", now);
+  insertShopEmployee(db, now, passwordHash);
 
   const insertCell = db.prepare(
     `INSERT INTO risk_matrix_cell (probability_code, severity_code, matrix_cell, matrix_level, doctrine_ref)
@@ -339,4 +388,30 @@ function seed(db: DatabaseSync): void {
       cell.basis,
     );
   }
+}
+
+function ensureShopEmployee(db: DatabaseSync): void {
+  const existing = db.prepare("SELECT id FROM user WHERE email = ?").get("shop2.employee@camp-sentinel.example");
+  if (existing) {
+    return;
+  }
+  insertShopEmployee(db, new Date().toISOString(), hashPassword(DEMO_PASSWORD));
+}
+
+function insertShopEmployee(db: DatabaseSync, now: string, passwordHash: string): void {
+  db.prepare(
+    `INSERT INTO user (id, organization_id, email, password_hash, display_name, grade_text, created_at, created_by)
+     VALUES (?, ?, ?, ?, ?, ?, ?, NULL)`,
+  ).run(
+    "user-shop2-employee",
+    "org-shop-2",
+    "shop2.employee@camp-sentinel.example",
+    passwordHash,
+    "Shop 2 Employee",
+    null,
+    now,
+  );
+  db.prepare(
+    "INSERT INTO user_role (id, user_id, role_id, organization_id, created_at, created_by) VALUES (?, ?, ?, ?, ?, NULL)",
+  ).run("ur-employee", "user-shop2-employee", "employee", "org-shop-2", now);
 }

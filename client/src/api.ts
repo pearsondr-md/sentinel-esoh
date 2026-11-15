@@ -19,6 +19,35 @@ export type FindingSummary = {
   originalText: string;
   status: string;
   sourceObservationId: string | null;
+  sourceReportId: string | null;
+  programArea: string | null;
+};
+
+export type EmployeeReport = {
+  id: string;
+  text: string;
+  reporterDisplayName: string | null;
+  showName: boolean;
+};
+
+export type Obligation = {
+  id: string;
+  title: string;
+  applicabilityText: string;
+  programArea: string;
+};
+
+export type WasteStream = {
+  id: string;
+  obligationId: string | null;
+  name: string;
+  wasteKind: string;
+};
+
+export type Spill = {
+  id: string;
+  description: string;
+  reportedTo: string;
 };
 
 export type Assessment = {
@@ -62,6 +91,14 @@ export type ActionRecord = {
   completedBy: string | null;
 };
 
+export type EvidenceRecord = {
+  id: string;
+  actionId: string;
+  fileName: string;
+  contentHash: string;
+  uploadedBy: string;
+};
+
 export type Verification = {
   id: string;
   result: string;
@@ -77,6 +114,7 @@ export type FindingChain = {
   decisions: Decision[];
   authorityChecks: AuthorityCheck[];
   actions: ActionRecord[];
+  evidence: EvidenceRecord[];
   verifications: Verification[];
 };
 
@@ -113,6 +151,13 @@ export const api = {
       token,
     ),
   users: (token: string) => request<{ users: OrgUser[] }>("/users", token),
+  reports: (token: string) => request<{ employeeReports: EmployeeReport[] }>("/employee-reports", token),
+  report: (token: string, id: string) =>
+    request<{ report: EmployeeReport; findings: FindingSummary[] }>(`/employee-reports/${id}`, token),
+  createReport: (token: string, text: string, showName: boolean) =>
+    request<EmployeeReport>("/employee-reports", token, "POST", { text, showName }),
+  addFindingFromReport: (token: string, reportId: string, originalText: string) =>
+    request<FindingSummary>(`/employee-reports/${reportId}/findings`, token, "POST", { originalText }),
   finding: (token: string, id: string) => request<FindingChain>(`/findings/${id}`, token),
   createInspection: (token: string, shopName: string, inspectedOn: string) =>
     request<Inspection>("/inspections", token, "POST", { shopName, inspectedOn }),
@@ -163,8 +208,30 @@ export const api = {
     }),
   completeAction: (token: string, actionId: string) =>
     request<ActionRecord>(`/actions/${actionId}/complete`, token, "POST"),
+  addEvidence: (token: string, actionId: string, fileName: string, contentBase64: string) =>
+    request<EvidenceRecord>(`/actions/${actionId}/evidence`, token, "POST", { fileName, contentBase64 }),
   verifyAction: (token: string, actionId: string, result: "pass" | "fail", notes: string) =>
     request<Verification>(`/actions/${actionId}/verifications`, token, "POST", { result, notes }),
   closeAction: (token: string, actionId: string) =>
     request<{ finding: FindingSummary }>(`/actions/${actionId}/close`, token, "POST"),
+  obligations: (token: string) => request<{ obligations: Obligation[] }>("/obligations", token),
+  obligation: (token: string, id: string) =>
+    request<{ obligation: Obligation; findings: FindingSummary[] }>(`/obligations/${id}`, token),
+  createObligation: (token: string, title: string, applicabilityText: string, programArea: string) =>
+    request<Obligation>("/obligations", token, "POST", { title, applicabilityText, programArea }),
+  addFindingFromObligation: (token: string, obligationId: string, originalText: string) =>
+    request<FindingSummary>(`/obligations/${obligationId}/findings`, token, "POST", { originalText }),
+  wasteStreams: (token: string) => request<{ wasteStreams: WasteStream[] }>("/waste-streams", token),
+  wasteStream: (token: string, id: string) =>
+    request<{ wasteStream: WasteStream; findings: FindingSummary[] }>(`/waste-streams/${id}`, token),
+  createWasteStream: (token: string, name: string, wasteKind: string, obligationId: string | null) =>
+    request<WasteStream>("/waste-streams", token, "POST", { name, wasteKind, obligationId }),
+  addFindingFromWaste: (token: string, wasteStreamId: string, originalText: string) =>
+    request<FindingSummary>(`/waste-streams/${wasteStreamId}/findings`, token, "POST", { originalText }),
+  spills: (token: string) => request<{ spills: Spill[] }>("/spills", token),
+  spill: (token: string, id: string) => request<{ spill: Spill; findings: FindingSummary[] }>(`/spills/${id}`, token),
+  createSpill: (token: string, description: string, reportedTo: string) =>
+    request<Spill>("/spills", token, "POST", { description, reportedTo }),
+  addFindingFromSpill: (token: string, spillId: string, originalText: string) =>
+    request<FindingSummary>(`/spills/${spillId}/findings`, token, "POST", { originalText }),
 };
