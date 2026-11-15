@@ -454,6 +454,46 @@ describe("Shop 2 workflow", () => {
     );
   });
 
+  it("stores a local ASOHMS practice note and refuses an official assessment", async () => {
+    const safety = await login("shop2.safety@camp-sentinel.example");
+    const otherUnit = await login("unit2.safety@camp-sentinel.example");
+    const page = await api(safety, "GET", "/asohms");
+    const codes = (page.objectives as Array<{ code: string; officialText: string | null; placeholderNote: string }>).map(
+      (row) => row.code,
+    );
+    assert.deepEqual(codes, ["CO-LEAD", "CO-MISHAP", "CO-TRAIN", "CO-INSPECT", "CO-HAZARD", "CO-HEALTH"]);
+    for (const row of page.objectives as Array<{ officialText: string | null; placeholderNote: string }>) {
+      assert.equal(row.officialText, null);
+      assert.match(row.placeholderNote, /Official criterion text is not loaded/);
+    }
+    assert.match(String(page.notice), /does not produce an official Army assessment/);
+
+    const saved = await api(safety, "PUT", "/asohms/CO-INSPECT/practice", {
+      practiceStatus: "in progress",
+      stageLabel: "documentation",
+    });
+    assert.equal(saved.practiceStatus, "in progress");
+    assert.equal(saved.stageLabel, "documentation");
+    const again = await api(safety, "GET", "/asohms");
+    const inspect = (again.objectives as Array<{ code: string; practiceStatus: string }>).find(
+      (row) => row.code === "CO-INSPECT",
+    );
+    assert.equal(inspect?.practiceStatus, "in progress");
+
+    const other = await api(otherUnit, "GET", "/asohms");
+    const hidden = (other.objectives as Array<{ code: string; practiceStatus: string }>).find(
+      (row) => row.code === "CO-INSPECT",
+    );
+    assert.equal(hidden?.practiceStatus, "not started");
+
+    await api(safety, "PUT", "/asohms/CO-LEAD/practice", {
+      practiceStatus: "complete",
+      star: true,
+    }, 400);
+    const columns = db.prepare("PRAGMA table_info(asohms_score)").all() as Array<{ name: string }>;
+    assert.equal(columns.some((column) => column.name === "is_official_assessment"), false);
+  });
+
   it("allows a general officer fixture to accept extremely high risk without changing the cell", async () => {
     const hash = hashPassword(DEMO_PASSWORD);
     db.prepare(

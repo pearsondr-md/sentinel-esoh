@@ -271,6 +271,33 @@ CREATE TABLE IF NOT EXISTS exposure_group (
   created_by TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS asohms_objective (
+  id TEXT PRIMARY KEY,
+  regulation_letter TEXT NOT NULL,
+  regulation_label TEXT NOT NULL,
+  pamphlet_label TEXT NOT NULL,
+  article_label TEXT,
+  sort_order INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS asohms_criterion (
+  id TEXT PRIMARY KEY,
+  objective_id TEXT NOT NULL REFERENCES asohms_objective(id),
+  official_text TEXT,
+  placeholder_note TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS asohms_score (
+  id TEXT PRIMARY KEY,
+  organization_id TEXT NOT NULL REFERENCES organization(id),
+  objective_id TEXT NOT NULL REFERENCES asohms_objective(id),
+  practice_status TEXT NOT NULL,
+  stage_label TEXT,
+  updated_at TEXT NOT NULL,
+  updated_by TEXT NOT NULL,
+  UNIQUE (organization_id, objective_id)
+);
+
 CREATE TABLE IF NOT EXISTS record_event (
   id TEXT PRIMARY KEY,
   organization_id TEXT NOT NULL REFERENCES organization(id),
@@ -299,6 +326,7 @@ export function openDatabase(dbPath: string): DatabaseSync {
   db.exec(SCHEMA);
   seed(db);
   ensureShopEmployee(db);
+  ensureAsohms(db);
   return db;
 }
 
@@ -426,4 +454,34 @@ function insertShopEmployee(db: DatabaseSync, now: string, passwordHash: string)
   db.prepare(
     "INSERT INTO user_role (id, user_id, role_id, organization_id, created_at, created_by) VALUES (?, ?, ?, ?, ?, NULL)",
   ).run("ur-employee", "user-shop2-employee", "employee", "org-shop-2", now);
+}
+
+const ASOHMS_OBJECTIVES: Array<[string, string, string, string, string | null, number]> = [
+  ["CO-LEAD", "a", "Leadership engagement and personnel/Soldier participation (program management)", "Leadership engagement and employee/Soldier participation", "Leadership Engagement and Personnel/Soldier Readiness", 1],
+  ["CO-MISHAP", "d", "Mishap, incident, and illness reporting and investigation", "Investigate and report mishaps, incidents, and illnesses", null, 2],
+  ["CO-TRAIN", "b", "Training and promotion", "Conduct safety and occupational health training and promotion", null, 3],
+  ["CO-INSPECT", "c", "Inspections/assessments", "Conduct inspections and assessments", null, 4],
+  ["CO-HAZARD", "e", "Hazard analysis and countermeasures", "Conduct hazard analysis and develop countermeasures", null, 5],
+  ["CO-HEALTH", "f", "Health protection and readiness", "Health protection and readiness", null, 6],
+];
+
+function ensureAsohms(db: DatabaseSync): void {
+  const insertObjective = db.prepare(
+    `INSERT INTO asohms_objective (id, regulation_letter, regulation_label, pamphlet_label, article_label, sort_order)
+     VALUES (?, ?, ?, ?, ?, ?)
+     ON CONFLICT(id) DO NOTHING`,
+  );
+  const insertCriterion = db.prepare(
+    `INSERT INTO asohms_criterion (id, objective_id, official_text, placeholder_note)
+     VALUES (?, ?, NULL, ?)
+     ON CONFLICT(id) DO NOTHING`,
+  );
+  for (const objective of ASOHMS_OBJECTIVES) {
+    insertObjective.run(...objective);
+    insertCriterion.run(
+      `placeholder-${objective[0]}`,
+      objective[0],
+      "Official criterion text is not loaded. This row is a placeholder.",
+    );
+  }
 }

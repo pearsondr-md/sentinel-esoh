@@ -72,4 +72,4 @@ The first working milestone does not score ASOHMS. It does teach the objectives 
 - A corrective action and a verification are the management loop the whole system depends on.
 - A mishap record can be added only after DA Pam 385-40 thresholds are transcribed. Until then, the inspection path is the milestone.
 
-A later practice screen may list the six objectives and the placeholder rows so a learner can see where evidence from the milestone would attach. That screen will say, in the interface, that the result is not an official Army assessment.
+The practice screen lists the six objectives and one placeholder row for each. It says, in the interface, that the result is not an official Army assessment. Evidence from an inspection still attaches through the finding and the corrective action.

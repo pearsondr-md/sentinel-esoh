@@ -66,7 +66,7 @@ The first build implements one row in software: the core operational path. Later
 
 ## ASOHMS management
 
-**Capability.** Later practice screens for six objectives, placeholder criteria, evidence, gaps, and actions. Maturity stage labels may be stored as notes.
+**Capability.** A practice screen lists the six objectives, one placeholder criterion for each, and a local practice status. A stage name can be stored as a label. Evidence and gaps still use the existing finding and action records.
 
 **Authorities.** Army Directive 2024-09; AR 385-10 paragraph 1-9; DA Pam 385-10 chapter 2. The 48 criteria and the official scoring rubric are unresolved. See the [ASOHMS mapping](03-asohms-mapping.md).
 

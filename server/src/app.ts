@@ -434,6 +434,61 @@ export function createApp(dbPath: string): { app: express.Express; db: DatabaseS
     });
   }));
 
+  app.get("/asohms", wrap((req, res) => {
+    const actor = requireActor(db, req);
+    const rows = db.prepare(
+      `SELECT o.id, o.regulation_letter, o.regulation_label, o.pamphlet_label, o.article_label,
+              c.official_text, c.placeholder_note, s.practice_status, s.stage_label
+       FROM asohms_objective o
+       JOIN asohms_criterion c ON c.objective_id = o.id
+       LEFT JOIN asohms_score s ON s.objective_id = o.id AND s.organization_id = ?
+       ORDER BY o.sort_order`,
+    ).all(homeOrg(actor)) as Array<Record<string, unknown>>;
+    res.json({
+      notice: "These practice notes are local learning records. SENTINEL does not produce an official Army assessment.",
+      objectives: rows.map((row) => ({
+        code: row.id,
+        regulationLetter: row.regulation_letter,
+        regulationLabel: row.regulation_label,
+        pamphletLabel: row.pamphlet_label,
+        articleLabel: row.article_label,
+        officialText: row.official_text,
+        placeholderNote: row.official_text === null ? row.placeholder_note : null,
+        practiceStatus: row.practice_status ?? "not started",
+        stageLabel: row.stage_label,
+      })),
+    });
+  }));
+
+  app.put("/asohms/:code/practice", wrap((req, res) => {
+    const actor = requireActor(db, req);
+    requireRole(actor, "safety officer");
+    const code = routeId(req.params.code);
+    const objective = db.prepare("SELECT id FROM asohms_objective WHERE id = ?").get(code) as { id: string } | undefined;
+    if (!objective) throw new HttpError(404, "Objective not found");
+    const body = bodyOf(req);
+    for (const key of ["officialText", "official", "star", "certified", "headquartersEvaluation", "maturityRating", "isOfficialAssessment"]) {
+      if (key in body) throw new HttpError(400, "A practice note cannot record an official assessment");
+    }
+    const practiceStatus = requireEnum(body, "practiceStatus", ["not started", "in progress", "complete"]);
+    const stageLabel = optionalEnum(body, "stageLabel", [
+      "documentation",
+      "implementation and execution",
+      "sustainment and continuous improvement",
+    ]);
+    const id = randomUUID();
+    db.prepare(
+      `INSERT INTO asohms_score (id, organization_id, objective_id, practice_status, stage_label, updated_at, updated_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT (organization_id, objective_id) DO UPDATE SET
+         practice_status = excluded.practice_status,
+         stage_label = excluded.stage_label,
+         updated_at = excluded.updated_at,
+         updated_by = excluded.updated_by`,
+    ).run(id, homeOrg(actor), code, practiceStatus, stageLabel, now(), actor.id);
+    res.json({ code, practiceStatus, stageLabel });
+  }));
+
   app.post("/observations/:id/findings", wrap((req, res) => {
     const actor = requireActor(db, req);
     requireRole(actor, "safety officer");
