@@ -83,12 +83,69 @@ export function createApp(dbPath: string): { app: express.Express; db: DatabaseS
       user.id,
       now(),
     );
-    res.status(201).json({ token, displayName: user.display_name, gradeText: user.grade_text });
+    res.status(201).json({
+      token,
+      userId: user.id,
+      displayName: user.display_name,
+      gradeText: user.grade_text,
+      roles: roleNames(db, user.id),
+    });
   }));
 
   app.get("/inspections", wrap((req, res) => {
     const actor = requireActor(db, req);
-    res.json({ inspections: listScoped(db, actor, "inspection", "inspected_on DESC") });
+    const rows = listScoped(db, actor, "inspection", "inspected_on DESC");
+    res.json({ inspections: rows.map(publicInspection) });
+  }));
+
+  app.get("/inspections/:id", wrap((req, res) => {
+    const actor = requireActor(db, req);
+    const inspection = mustGet(db, "inspection", routeId(req.params.id), actor);
+    const observations = db
+      .prepare("SELECT * FROM observation WHERE inspection_id = ? ORDER BY created_at")
+      .all(inspection.id) as Record<string, unknown>[];
+    const findings = db
+      .prepare(
+        `SELECT finding.* FROM finding
+         JOIN observation ON observation.id = finding.source_observation_id
+         WHERE observation.inspection_id = ?
+         ORDER BY finding.created_at`,
+      )
+      .all(inspection.id) as FindingRow[];
+    res.json({
+      inspection: publicInspection(inspection),
+      observations: observations.map(publicObservation),
+      findings: findings.map(publicFinding),
+    });
+  }));
+
+  app.get("/users", wrap((req, res) => {
+    const actor = requireActor(db, req);
+    if (actor.organizationIds.length === 0) {
+      res.json({ users: [] });
+      return;
+    }
+    const placeholders = actor.organizationIds.map(() => "?").join(", ");
+    const users = db
+      .prepare(
+        `SELECT id, display_name, grade_text, organization_id FROM user
+         WHERE organization_id IN (${placeholders}) ORDER BY display_name`,
+      )
+      .all(...actor.organizationIds) as Array<{
+      id: string;
+      display_name: string;
+      grade_text: string | null;
+      organization_id: string;
+    }>;
+    res.json({
+      users: users.map((user) => ({
+        id: user.id,
+        displayName: user.display_name,
+        gradeText: user.grade_text,
+        organizationId: user.organization_id,
+        roles: roleNames(db, user.id),
+      })),
+    });
   }));
 
   app.post("/inspections", wrap((req, res) => {
@@ -105,7 +162,7 @@ export function createApp(dbPath: string): { app: express.Express; db: DatabaseS
        VALUES (?, ?, ?, ?, ?, 'draft', ?, ?)`,
     ).run(id, organizationId, shopName, inspectedOn, actor.id, now(), actor.id);
     recordEvent(db, organizationId, "inspection", id, null, "draft", actor.id, null);
-    res.status(201).json(getOne(db, "inspection", id));
+    res.status(201).json(publicInspection(getOne(db, "inspection", id)));
   }));
 
   app.post("/inspections/:id/complete", wrap((req, res) => {
@@ -117,7 +174,7 @@ export function createApp(dbPath: string): { app: express.Express; db: DatabaseS
     }
     db.prepare("UPDATE inspection SET status = 'complete' WHERE id = ?").run(inspection.id);
     recordEvent(db, inspection.organization_id, "inspection", inspection.id, "draft", "complete", actor.id, null);
-    res.json(getOne(db, "inspection", inspection.id));
+    res.json(publicInspection(getOne(db, "inspection", inspection.id)));
   }));
 
   app.post("/inspections/:id/observations", wrap((req, res) => {
@@ -130,7 +187,7 @@ export function createApp(dbPath: string): { app: express.Express; db: DatabaseS
       `INSERT INTO observation (id, organization_id, inspection_id, text, created_at, created_by)
        VALUES (?, ?, ?, ?, ?, ?)`,
     ).run(id, inspection.organization_id, inspection.id, text, now(), actor.id);
-    res.status(201).json(getOne(db, "observation", id));
+    res.status(201).json(publicObservation(getOne(db, "observation", id)));
   }));
 
   app.post("/employee-reports", wrap((req, res) => {
@@ -876,12 +933,83 @@ function findingChain(db: DatabaseSync, finding: FindingRow) {
     : [];
   return {
     finding: publicFinding(finding),
-    hazards,
+    hazards: (hazards as Record<string, unknown>[]).map(publicHazard),
     assessments: (assessments as Record<string, unknown>[]).map(publicAssessment),
-    controls,
+    controls: (controls as Record<string, unknown>[]).map(publicControl),
     decisions: (decisions as Record<string, unknown>[]).map(publicDecision),
     authorityChecks: (authorityChecks as Record<string, unknown>[]).map(publicAuthority),
-    actions,
-    verifications,
+    actions: (actions as Record<string, unknown>[]).map(publicAction),
+    verifications: (verifications as Record<string, unknown>[]).map(publicVerification),
+  };
+}
+
+function roleNames(db: DatabaseSync, userId: string): string[] {
+  const rows = db
+    .prepare(
+      `SELECT r.name AS role FROM user_role ur JOIN role r ON r.id = ur.role_id WHERE ur.user_id = ?`,
+    )
+    .all(userId) as Array<{ role: string }>;
+  return rows.map((row) => row.role);
+}
+
+function publicInspection(row: Record<string, unknown>) {
+  return {
+    id: row.id,
+    organizationId: row.organization_id,
+    shopName: row.shop_name,
+    inspectedOn: row.inspected_on,
+    inspectorUserId: row.inspector_user_id,
+    status: row.status,
+  };
+}
+
+function publicObservation(row: Record<string, unknown>) {
+  return {
+    id: row.id,
+    inspectionId: row.inspection_id,
+    text: row.text,
+  };
+}
+
+function publicHazard(row: Record<string, unknown>) {
+  return {
+    id: row.id,
+    description: row.description,
+  };
+}
+
+function publicControl(row: Record<string, unknown>) {
+  return {
+    id: row.id,
+    assessmentId: row.assessment_id,
+    atpCategory: row.atp_category,
+    hierarchyStep: row.hierarchy_step,
+    whatText: row.what_text,
+    whoText: row.who_text,
+    howText: row.how_text,
+  };
+}
+
+function publicAction(row: Record<string, unknown>) {
+  return {
+    id: row.id,
+    findingId: row.finding_id,
+    hazardId: row.hazard_id,
+    description: row.description,
+    ownerUserId: row.owner_user_id,
+    dueOn: row.due_on,
+    status: row.status,
+    kind: row.kind,
+    completedBy: row.completed_by,
+  };
+}
+
+function publicVerification(row: Record<string, unknown>) {
+  return {
+    id: row.id,
+    actionId: row.action_id,
+    result: row.result,
+    notes: row.notes,
+    verifierUserId: row.verifier_user_id,
   };
 }

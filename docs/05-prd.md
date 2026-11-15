@@ -54,7 +54,8 @@ These are required for the full learning product. They are built after the first
 - History is append-only. Closing is a new event, not a deletion.
 - Risk is three records: matrix result, human decision, and authority check. No override of the matrix and no exception path until a publication paragraph for that exception has been verified and written down.
 - Synthetic data only.
-- The interface uses Army terms where the publication uses them (mishap, hazard, control, residual risk) and explains them in plain language the first time a learner meets them.
+- The interface uses Army terms where the publication uses them (mishap, hazard, control, residual risk) and explains them in plain language the first time a person meets them.
+- The visual design uses black and gold and SENTINEL’s own logo. Official Army marks are not reproduced. Fields are labeled, and the page can be operated from the keyboard.
 - Another organization could reuse the workflow by configuring organization names and roles. The risk matrix and the authority rules stay sourced. They are not silently replaced with a generic score.
 
 ## Outside this product

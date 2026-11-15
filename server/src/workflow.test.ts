@@ -148,10 +148,19 @@ describe("Shop 2 workflow", () => {
       }
     ).id;
 
+    const people = await api(safety, "GET", "/users");
+    assert.equal(
+      (people.users as Array<{ displayName: string }>).some((user) => user.displayName.includes("Supervisor")),
+      true,
+    );
+
     const inspection = await api(safety, "POST", "/inspections", {
       shopName: "Shop 2",
       inspectedOn: "2026-11-15",
     });
+    assert.equal(inspection.shopName, "Shop 2");
+    const detail = await api(safety, "GET", `/inspections/${inspection.id}`);
+    assert.equal(detail.inspection.shopName, "Shop 2");
     const observation = await api(safety, "POST", `/inspections/${inspection.id}/observations`, {
       text: "Waste container with no label, north wall.",
     });

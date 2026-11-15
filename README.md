@@ -6,6 +6,8 @@ The research notes still govern the product. Army doctrine and the source regist
 
 Nothing in this repository is an official Army assessment, an Authority to Operate, or a certification.
 
+The screen uses black and gold, with SENTINEL’s own logo. Official Army marks are not reproduced. Fields are labeled, and the page can be operated from the keyboard.
+
 ## Read these in order
 
 1. [Doctrine and regulatory baseline](docs/01-doctrine-baseline.md) — what kind of document each Army source is, and what SENTINEL is built around.
