@@ -58,11 +58,11 @@ The first build implements one row in software: the core operational path. Later
 
 ## Executive operational picture
 
-**Capability.** Later. A council-style view of open findings, overdue actions, and ASOHMS evidence gaps using records the organization already holds.
+**Capability.** A council-style view of open findings, overdue actions, inspections, exposure-group counts, and environmental records the organization already holds.
 
 **Authorities.** AR 385-10 paragraph 1-17 lists the kinds of information a Safety and Occupational Health Advisory Council reviews, including ASOHMS status, inspection completion, training completion, mishap summaries, and abatement of higher-priority facility hazards. Minutes are kept at least five years. OSHA rate formulas are mentioned there. The formulas will be taken from the current 29 CFR 1904 method when that view is built, not memorized now.
 
-**Limit.** The view is a report of SENTINEL records. It is not a readiness rating defined by doctrine, and it is not an official assessment. It is outside the first milestone so the learner can finish the workflow that would feed it.
+**Limit.** The view reports SENTINEL records. It is not a readiness rating and not an official assessment. ASOHMS status, training completion, mishap summaries, RAC abatement, OSHA rates, and council minutes are listed as not stored. The OSHA formulas stay unread until taken from the current 29 CFR 1904 text.
 
 ## ASOHMS management
 
