@@ -1,6 +1,8 @@
-# 42-day roadmap
+# Build notes
 
-About **one hour a day**, for 42 days. Each day practices a Cursor or Grok skill. Army doctrine is read only for the rule that day's work must follow. If the hour is full, stop. Do not add a second feature.
+The day-by-day schedule below was the way the rules were learned. It is not the build schedule. The product goal is a system an Army safety officer, commander, and shop supervisor can see themselves in. The doctrine, the source register, and the workflow rules still decide what the software is allowed to do.
+
+About **one hour a day**, for 42 days, was the original practice plan. Army doctrine is read for the rule the work must follow.
 
 The research notes in this folder stay the reference. You do not reread them from front to back before using the editor.
 

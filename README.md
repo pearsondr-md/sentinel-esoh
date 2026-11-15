@@ -1,10 +1,10 @@
 # SENTINEL
 
-SENTINEL is a learning project: an Army-oriented environment, safety, and occupational health (ESOH) demonstration, built slowly enough that the doctrine and the code can both be understood.
+SENTINEL is a working environment, safety, and occupational health (ESOH) system for an Army audience. A safety officer, a commander, and a shop supervisor should recognize their own work in it: the inspection, the finding, the hazard, the risk decision, and the corrective action.
 
-This repository currently holds research and design notes only. There is no application code and no installed packages.
+The research notes still govern the product. Army doctrine and the source register decide what a record means. The 42-day learning schedule does not. Camp Sentinel remains a fictional garrison with synthetic people and events, so the product can be shown without using a real installation's records.
 
-Nothing in these notes is an official Army assessment, an Authority to Operate, or a certification. Camp Sentinel, the fictional garrison used in examples, is not a real installation.
+Nothing in this repository is an official Army assessment, an Authority to Operate, or a certification.
 
 ## Read these in order
 
@@ -17,7 +17,7 @@ Nothing in these notes is an official Army assessment, an Authority to Operate, 
 7. [Data model](docs/07-data-model.md) — the records and how history is kept.
 8. [First workflow](docs/08-workflow.md) — inspection, finding, hazard, risk assessment, corrective action, and verification. This is the first working milestone.
 9. [Security and AI governance](docs/09-security-ai-governance.md) — human decisions, synthetic data, and how Grok will be used later.
-10. [42-day roadmap](docs/10-roadmap.md) — about one hour a day. Each day practices Cursor or Grok. Army doctrine is read only for the rule that day's work must follow.
+10. [Build notes](docs/10-roadmap.md) — the earlier day-by-day practice plan. The rules in it still apply. The schedule does not.
 
 ## First milestone
 

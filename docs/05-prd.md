@@ -1,6 +1,6 @@
 # Product requirements
 
-SENTINEL is a learning demonstration and a faithful sketch of an Army ESOH management workflow. These requirements describe the product. They do not authorize a real installation to use it for official records.
+SENTINEL is a working Army ESOH system. These requirements describe the product an Army customer should be able to recognize as their own work. They do not authorize a real installation to use it for official records.
 
 The fictional setting is **Camp Sentinel**, a made-up garrison with a garrison staff and two tenant units. Every person, shop, container, and event is synthetic.
 
