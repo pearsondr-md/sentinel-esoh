@@ -1,5 +1,9 @@
-import express from "express";
+import { createApp } from "./app.ts";
+import { defaultDbPath } from "./db.ts";
 
-const app = express();
+const { app } = createApp(defaultDbPath());
+const port = 3000;
 
-export default app;
+app.listen(port, () => {
+  console.log(`listening on ${port}`);
+});
