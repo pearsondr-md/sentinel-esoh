@@ -50,6 +50,18 @@ export type Spill = {
   reportedTo: string;
 };
 
+export type AsohmsObjective = {
+  code: string;
+  regulationLetter: string;
+  regulationLabel: string;
+  pamphletLabel: string;
+  articleLabel: string | null;
+  officialText: string | null;
+  placeholderNote: string | null;
+  practiceStatus: "not started" | "in progress" | "complete";
+  stageLabel: string | null;
+};
+
 export type CouncilReport = {
   asOf: string;
   findings: Record<string, number>;
@@ -257,6 +269,19 @@ export const api = {
   addFindingFromSpill: (token: string, spillId: string, originalText: string) =>
     request<FindingSummary>(`/spills/${spillId}/findings`, token, "POST", { originalText }),
   council: (token: string) => request<CouncilReport>("/council", token),
+  asohms: (token: string) => request<{ notice: string; objectives: AsohmsObjective[] }>("/asohms", token),
+  saveAsohmsPractice: (
+    token: string,
+    code: string,
+    practiceStatus: AsohmsObjective["practiceStatus"],
+    stageLabel: string | null,
+  ) =>
+    request<{ code: string; practiceStatus: string; stageLabel: string | null }>(
+      `/asohms/${code}/practice`,
+      token,
+      "PUT",
+      { practiceStatus, stageLabel },
+    ),
   exposureGroups: (token: string) => request<{ exposureGroups: ExposureGroup[] }>("/exposure-groups", token),
   exposureGroup: (token: string, id: string) =>
     request<{ exposureGroup: ExposureGroup }>(`/exposure-groups/${id}`, token),
