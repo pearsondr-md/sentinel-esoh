@@ -374,6 +374,56 @@ describe("Shop 2 workflow", () => {
     await api(otherUnit, "GET", `/obligations/${obligation.id}`, undefined, 404);
   });
 
+  it("counts council records the organization holds and leaves the rest unstored", async () => {
+    const safety = await login("shop2.safety@camp-sentinel.example");
+    const otherUnit = await login("unit2.safety@camp-sentinel.example");
+    const supervisorId = (
+      db.prepare("SELECT id FROM user WHERE email = ?").get("shop2.supervisor@camp-sentinel.example") as { id: string }
+    ).id;
+    const inspection = await api(safety, "POST", "/inspections", { shopName: "Shop 2", inspectedOn: "2026-11-15" });
+    const observation = await api(safety, "POST", `/inspections/${inspection.id}/observations`, { text: "Council fixture." });
+    const finding = await api(safety, "POST", `/observations/${observation.id}/findings`, {
+      originalText: "Council fixture finding.",
+    });
+    const hazard = await api(safety, "POST", `/findings/${finding.id}/hazards`, { description: "Council fixture hazard." });
+    const late = await api(safety, "POST", `/findings/${finding.id}/actions`, {
+      hazardId: hazard.id,
+      description: "Council overdue action.",
+      ownerUserId: supervisorId,
+      dueOn: "2020-01-01",
+      kind: "corrective",
+    });
+    const future = await api(safety, "POST", `/findings/${finding.id}/actions`, {
+      hazardId: hazard.id,
+      description: "Council future action.",
+      ownerUserId: supervisorId,
+      dueOn: "2099-01-01",
+      kind: "corrective",
+    });
+
+    const council = await api(safety, "GET", "/council");
+    assert.equal("oshaRate" in council, false);
+    assert.equal("readiness" in council, false);
+    assert.equal(
+      (council.overdueActions as Array<{ id: string }>).some((action) => action.id === late.id),
+      true,
+    );
+    assert.equal(
+      (council.overdueActions as Array<{ id: string }>).some((action) => action.id === future.id),
+      false,
+    );
+    const absent = (council.notStored as Array<{ item: string }>).map((item) => item.item);
+    assert.ok(absent.includes("OSHA rates"));
+    assert.ok(absent.includes("Mishap summaries"));
+    assert.ok(absent.includes("ASOHMS implementation status"));
+
+    const other = await api(otherUnit, "GET", "/council");
+    assert.equal(
+      (other.overdueActions as Array<{ id: string }>).some((action) => action.id === late.id),
+      false,
+    );
+  });
+
   it("stores an exposure group as counts and rejects a diagnosis", async () => {
     const safety = await login("shop2.safety@camp-sentinel.example");
     const otherUnit = await login("unit2.safety@camp-sentinel.example");

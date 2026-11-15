@@ -403,6 +403,37 @@ export function createApp(dbPath: string): { app: express.Express; db: DatabaseS
     res.json({ exposureGroup: publicExposure(group) });
   }));
 
+  app.get("/council", wrap((req, res) => {
+    const actor = requireActor(db, req);
+    const ids = actor.organizationIds;
+    const today = localDate();
+    res.json({
+      asOf: today,
+      findings: countByStatus(db, "finding", ids),
+      actions: countByStatus(db, "corrective_action", ids),
+      inspections: countByStatus(db, "inspection", ids),
+      overdueActions: overdueActions(db, ids, today),
+      exposureGroups: exposureTotals(db, ids),
+      obligations: countRows(db, "obligation", ids),
+      wasteStreams: countRows(db, "waste_stream", ids),
+      spills: countRows(db, "spill", ids),
+      notStored: [
+        { item: "ASOHMS implementation status", reason: "Official criteria are not loaded." },
+        { item: "Training completion", reason: "Training records are not in SENTINEL." },
+        { item: "Mishap summaries", reason: "Mishap class is not transcribed from DA Pam 385-40." },
+        {
+          item: "RAC 1, 2, or 3 facility abatement",
+          reason: "The RAC crosswalk is not verified. Matrix levels stay in ATP words on each finding.",
+        },
+        { item: "OSHA rates", reason: "The 29 CFR 1904 formulas have not been taken from the current text." },
+        {
+          item: "Council minutes",
+          reason: "Minutes are not a SENTINEL record. Paragraph 1-17 says they are kept at least five years.",
+        },
+      ],
+    });
+  }));
+
   app.post("/observations/:id/findings", wrap((req, res) => {
     const actor = requireActor(db, req);
     requireRole(actor, "safety officer");
@@ -969,6 +1000,66 @@ function mustFinding(db: DatabaseSync, id: string, actor: Actor): FindingRow {
 
 function getOne(db: DatabaseSync, table: string, id: string): Record<string, unknown> {
   return db.prepare(`SELECT * FROM ${table} WHERE id = ?`).get(id) as Record<string, unknown>;
+}
+
+function localDate(): string {
+  const now = new Date();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  return `${now.getFullYear()}-${month}-${day}`;
+}
+
+function orgFilter(ids: string[]): string {
+  return `organization_id IN (${ids.map(() => "?").join(", ")})`;
+}
+
+function countByStatus(db: DatabaseSync, table: string, ids: string[]): Record<string, number> {
+  if (!/^[a-z_]+$/.test(table) || ids.length === 0) {
+    return {};
+  }
+  const rows = db
+    .prepare(`SELECT status, COUNT(*) AS n FROM ${table} WHERE ${orgFilter(ids)} GROUP BY status`)
+    .all(...ids) as Array<{ status: string; n: number }>;
+  return Object.fromEntries(rows.map((row) => [row.status, row.n]));
+}
+
+function countRows(db: DatabaseSync, table: string, ids: string[]): number {
+  if (!/^[a-z_]+$/.test(table) || ids.length === 0) {
+    return 0;
+  }
+  const row = db.prepare(`SELECT COUNT(*) AS n FROM ${table} WHERE ${orgFilter(ids)}`).get(...ids) as { n: number };
+  return row.n;
+}
+
+function exposureTotals(db: DatabaseSync, ids: string[]): { groups: number; people: number } {
+  if (ids.length === 0) {
+    return { groups: 0, people: 0 };
+  }
+  const row = db
+    .prepare(
+      `SELECT COUNT(*) AS groups, COALESCE(SUM(headcount), 0) AS people FROM exposure_group WHERE ${orgFilter(ids)}`,
+    )
+    .get(...ids) as { groups: number; people: number };
+  return row;
+}
+
+function overdueActions(db: DatabaseSync, ids: string[], today: string) {
+  if (ids.length === 0) {
+    return [];
+  }
+  const rows = db
+    .prepare(
+      `SELECT id, description, due_on, status FROM corrective_action
+       WHERE ${orgFilter(ids)} AND due_on IS NOT NULL AND due_on < ? AND status != 'closed'
+       ORDER BY due_on`,
+    )
+    .all(...ids, today) as Array<{ id: string; description: string; due_on: string; status: string }>;
+  return rows.map((row) => ({
+    id: row.id,
+    description: row.description,
+    dueOn: row.due_on,
+    status: row.status,
+  }));
 }
 
 function listScoped(db: DatabaseSync, actor: Actor, table: string, orderBy: string): Record<string, unknown>[] {

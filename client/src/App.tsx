@@ -9,6 +9,7 @@ import {
 } from "./api.ts";
 import { EnvironmentalDetail, EnvironmentalLists, type EnvironmentalSelection } from "./Environmental.tsx";
 import { ExposureDetail, ExposureLists } from "./OccupationalHealth.tsx";
+import { CouncilView } from "./Council.tsx";
 
 const ACCOUNTS = [
   ["Shop 2 safety officer", "shop2.safety@camp-sentinel.example"],
@@ -150,6 +151,7 @@ function Workspace({ session }: { session: Session }) {
   const [reportId, setReportId] = useState<string | null>(null);
   const [environmental, setEnvironmental] = useState<EnvironmentalSelection | null>(null);
   const [exposureId, setExposureId] = useState<string | null>(null);
+  const [showCouncil, setShowCouncil] = useState(false);
   const [findingId, setFindingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -171,6 +173,23 @@ function Workspace({ session }: { session: Session }) {
     <div className="grid gap-8 lg:grid-cols-[18rem_1fr]">
       <section className="space-y-8">
         <div>
+          <h2 className="mb-3 text-lg font-semibold">Council</h2>
+          <button
+            className={`w-full rounded border px-3 py-2 text-left ${showCouncil ? "border-stone-900 bg-white" : "border-stone-300 bg-stone-50"}`}
+            type="button"
+            onClick={() => {
+              setShowCouncil(true);
+              setInspectionId(null);
+              setReportId(null);
+              setEnvironmental(null);
+              setExposureId(null);
+              setFindingId(null);
+            }}
+          >
+            Counts for this organization
+          </button>
+        </div>
+        <div>
           <h2 className="mb-3 text-lg font-semibold">Inspections</h2>
           {error ? <p className="mb-3 text-sm text-red-800">{error}</p> : null}
           <ul className="space-y-2">
@@ -184,6 +203,7 @@ function Workspace({ session }: { session: Session }) {
                     setReportId(null);
                     setEnvironmental(null);
                     setExposureId(null);
+                    setShowCouncil(false);
                     setFindingId(null);
                   }}
                 >
@@ -203,6 +223,7 @@ function Workspace({ session }: { session: Session }) {
                 setReportId(null);
                 setEnvironmental(null);
                 setExposureId(null);
+                setShowCouncil(false);
                 setFindingId(null);
                 refreshInspections().catch((caught: unknown) => setError(messageOf(caught)));
               }}
@@ -222,6 +243,7 @@ function Workspace({ session }: { session: Session }) {
                     setInspectionId(null);
                     setEnvironmental(null);
                     setExposureId(null);
+                    setShowCouncil(false);
                     setFindingId(null);
                   }}
                 >
@@ -240,6 +262,7 @@ function Workspace({ session }: { session: Session }) {
               setInspectionId(null);
               setEnvironmental(null);
               setExposureId(null);
+              setShowCouncil(false);
               setFindingId(null);
               refreshReports().catch((caught: unknown) => setError(messageOf(caught)));
             }}
@@ -253,6 +276,7 @@ function Workspace({ session }: { session: Session }) {
               setInspectionId(null);
               setReportId(null);
               setExposureId(null);
+              setShowCouncil(false);
               setFindingId(null);
             }}
           />
@@ -264,6 +288,7 @@ function Workspace({ session }: { session: Session }) {
             setInspectionId(null);
             setReportId(null);
             setEnvironmental(null);
+            setShowCouncil(false);
             setFindingId(null);
           }}
         />
@@ -289,6 +314,8 @@ function Workspace({ session }: { session: Session }) {
         </div>
       ) : exposureId ? (
         <ExposureDetail session={session} groupId={exposureId} />
+      ) : showCouncil ? (
+        <CouncilView session={session} />
       ) : (
         <p className="text-stone-600">Choose an inspection, a written report, an environmental record, or an exposure group.</p>
       )}

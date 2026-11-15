@@ -50,6 +50,19 @@ export type Spill = {
   reportedTo: string;
 };
 
+export type CouncilReport = {
+  asOf: string;
+  findings: Record<string, number>;
+  actions: Record<string, number>;
+  inspections: Record<string, number>;
+  overdueActions: Array<{ id: string; description: string; dueOn: string; status: string }>;
+  exposureGroups: { groups: number; people: number };
+  obligations: number;
+  wasteStreams: number;
+  spills: number;
+  notStored: Array<{ item: string; reason: string }>;
+};
+
 export type ExposureGroup = {
   id: string;
   agent: string;
@@ -243,6 +256,7 @@ export const api = {
     request<Spill>("/spills", token, "POST", { description, reportedTo }),
   addFindingFromSpill: (token: string, spillId: string, originalText: string) =>
     request<FindingSummary>(`/spills/${spillId}/findings`, token, "POST", { originalText }),
+  council: (token: string) => request<CouncilReport>("/council", token),
   exposureGroups: (token: string) => request<{ exposureGroups: ExposureGroup[] }>("/exposure-groups", token),
   exposureGroup: (token: string, id: string) =>
     request<{ exposureGroup: ExposureGroup }>(`/exposure-groups/${id}`, token),
