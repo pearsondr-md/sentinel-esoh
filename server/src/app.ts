@@ -105,6 +105,67 @@ export function createApp(
     res.json({ inspections: rows.map(publicInspection) });
   }));
 
+  app.get("/work", wrap((req, res) => {
+    const actor = requireActor(db, req);
+    const ids = actor.organizationIds;
+    if (ids.length === 0) {
+      res.json({ inspections: [], findings: [] });
+      return;
+    }
+    const inspections = listScoped(db, actor, "inspection", "inspected_on DESC").map(publicInspection);
+    const placeholders = ids.map(() => "?").join(", ");
+    const rows = db.prepare(
+      `SELECT f.id, f.original_text, f.status,
+         (SELECT inspection_id FROM observation WHERE id = f.source_observation_id) AS inspection_id,
+         (SELECT COUNT(*) FROM finding_hazard fh WHERE fh.finding_id = f.id) AS hazard_count,
+         (SELECT COUNT(*) FROM risk_assessment ra
+            JOIN finding_hazard fh ON fh.hazard_id = ra.hazard_id
+            WHERE fh.finding_id = f.id AND ra.phase = 'initial') AS initial_count,
+         (SELECT COUNT(*) FROM risk_assessment ra
+            JOIN finding_hazard fh ON fh.hazard_id = ra.hazard_id
+            WHERE fh.finding_id = f.id AND ra.phase = 'residual') AS residual_count,
+         (SELECT COUNT(*) FROM control c
+            JOIN risk_assessment ra ON ra.id = c.assessment_id
+            JOIN finding_hazard fh ON fh.hazard_id = ra.hazard_id
+            WHERE fh.finding_id = f.id) AS control_count,
+         (SELECT COUNT(*) FROM risk_decision rd
+            JOIN risk_assessment ra ON ra.id = rd.assessment_id
+            JOIN finding_hazard fh ON fh.hazard_id = ra.hazard_id
+            WHERE fh.finding_id = f.id) AS decision_count,
+         (SELECT ac.result FROM authority_check ac
+            JOIN risk_decision rd ON rd.id = ac.decision_id
+            JOIN risk_assessment ra ON ra.id = rd.assessment_id
+            JOIN finding_hazard fh ON fh.hazard_id = ra.hazard_id
+            WHERE fh.finding_id = f.id
+            ORDER BY rd.created_at DESC LIMIT 1) AS authority_result,
+         (SELECT id FROM corrective_action WHERE finding_id = f.id ORDER BY created_at DESC LIMIT 1) AS action_id,
+         (SELECT status FROM corrective_action WHERE finding_id = f.id ORDER BY created_at DESC LIMIT 1) AS action_status,
+         (SELECT description FROM corrective_action WHERE finding_id = f.id ORDER BY created_at DESC LIMIT 1) AS action_description,
+         (SELECT owner_user_id FROM corrective_action WHERE finding_id = f.id ORDER BY created_at DESC LIMIT 1) AS action_owner_user_id,
+         (SELECT COUNT(*) FROM verification v
+            JOIN corrective_action ca ON ca.id = v.action_id
+            WHERE ca.finding_id = f.id AND v.result = 'pass') AS passed
+       FROM finding f
+       WHERE f.organization_id IN (${placeholders})
+       ORDER BY f.created_at DESC`,
+    ).all(...ids) as Array<Record<string, unknown>>;
+    res.json({
+      inspections,
+      findings: rows.map((row) => ({
+        id: row.id,
+        originalText: row.original_text,
+        status: row.status,
+        inspectionId: row.inspection_id,
+        authorityResult: row.authority_result,
+        actionId: row.action_id,
+        actionStatus: row.action_status,
+        actionDescription: row.action_description,
+        actionOwnerUserId: row.action_owner_user_id,
+        step: workStep(row),
+      })),
+    });
+  }));
+
   app.get("/inspections/:id", wrap((req, res) => {
     const actor = requireActor(db, req);
     const inspection = mustGet(db, "inspection", routeId(req.params.id), actor);
@@ -1185,6 +1246,22 @@ function localDate(): string {
   const month = String(now.getMonth() + 1).padStart(2, "0");
   const day = String(now.getDate()).padStart(2, "0");
   return `${now.getFullYear()}-${month}-${day}`;
+}
+
+function workStep(row: Record<string, unknown>): string {
+  const hazard = Number(row.hazard_count);
+  const initial = Number(row.initial_count);
+  const residual = Number(row.residual_count);
+  const control = Number(row.control_count);
+  const decision = Number(row.decision_count);
+  const actionStatus = typeof row.action_status === "string" ? row.action_status : null;
+  const passed = Number(row.passed);
+  if (hazard === 0 || initial === 0 || residual === 0 || control === 0) return "assess";
+  if (decision === 0) return "decide";
+  if (!actionStatus) return "assign";
+  if (actionStatus === "open" || passed === 0) return "verify";
+  if (actionStatus !== "closed") return "close";
+  return "done";
 }
 
 function orgFilter(ids: string[]): string {

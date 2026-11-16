@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api, type CouncilReport, type Session } from "./api.ts";
+import { Bars } from "./Charts.tsx";
 
 export function CouncilView({ session }: { session: Session }) {
   const [report, setReport] = useState<CouncilReport | null>(null);
@@ -25,25 +26,58 @@ export function CouncilView({ session }: { session: Session }) {
         </p>
       </div>
       {error ? <p className="text-sm text-red-800">{error}</p> : null}
-      <article className="rounded border border-stone-300 bg-white p-4">
-        <h3 className="font-semibold">Records held</h3>
-        <dl className="mt-3 grid gap-3 sm:grid-cols-2">
-          <Count label="Findings still open" value={numberOf(report.findings, "open")} />
-          <Count label="Findings with work in progress" value={numberOf(report.findings, "action in progress")} />
-          <Count label="Findings closed" value={numberOf(report.findings, "action closed")} />
-          <Count label="Actions open" value={numberOf(report.actions, "open")} />
-          <Count label="Actions completed, not closed" value={numberOf(report.actions, "completed")} />
-          <Count label="Actions closed" value={numberOf(report.actions, "closed")} />
-          <Count label="Inspections in draft" value={numberOf(report.inspections, "draft")} />
-          <Count label="Inspections complete" value={numberOf(report.inspections, "complete")} />
-          <Count label="Exposure groups" value={report.exposureGroups.groups} />
-          <Count label="People counted in exposure groups" value={report.exposureGroups.people} />
-          <Count label="Obligations" value={report.obligations} />
-          <Count label="Waste streams" value={report.wasteStreams} />
-          <Count label="Spills" value={report.spills} />
-        </dl>
-      </article>
-      <article className="rounded border border-stone-300 bg-white p-4">
+      <div className="grid gap-4 lg:grid-cols-2">
+        <article className="panel">
+          <h3 className="font-semibold">Findings</h3>
+          <div className="mt-4">
+            <Bars
+              items={[
+                { label: "Still open", value: numberOf(report.findings, "open"), tone: "#3d342b" },
+                { label: "Work in progress", value: numberOf(report.findings, "action in progress"), tone: "#b8893a" },
+                { label: "Closed", value: numberOf(report.findings, "action closed"), tone: "#7d8a62" },
+              ]}
+            />
+          </div>
+        </article>
+        <article className="panel">
+          <h3 className="font-semibold">Corrective actions</h3>
+          <div className="mt-4">
+            <Bars
+              items={[
+                { label: "Open", value: numberOf(report.actions, "open"), tone: "#3d342b" },
+                { label: "Completed, not closed", value: numberOf(report.actions, "completed"), tone: "#b8893a" },
+                { label: "Closed", value: numberOf(report.actions, "closed"), tone: "#7d8a62" },
+              ]}
+            />
+          </div>
+        </article>
+        <article className="panel">
+          <h3 className="font-semibold">Inspections</h3>
+          <div className="mt-4">
+            <Bars
+              items={[
+                { label: "Draft", value: numberOf(report.inspections, "draft"), tone: "#3d342b" },
+                { label: "Complete", value: numberOf(report.inspections, "complete"), tone: "#7d8a62" },
+              ]}
+            />
+          </div>
+        </article>
+        <article className="panel">
+          <h3 className="font-semibold">Other records held</h3>
+          <div className="mt-4">
+            <Bars
+              items={[
+                { label: "Obligations", value: report.obligations },
+                { label: "Waste streams", value: report.wasteStreams },
+                { label: "Spills", value: report.spills },
+                { label: "Exposure groups", value: report.exposureGroups.groups },
+                { label: "People in those groups", value: report.exposureGroups.people },
+              ]}
+            />
+          </div>
+        </article>
+      </div>
+      <article className="panel">
         <h3 className="font-semibold">Actions past due</h3>
         {report.overdueActions.length === 0 ? (
           <p className="mt-2 text-stone-600">No open action has a due date before today.</p>
@@ -57,7 +91,7 @@ export function CouncilView({ session }: { session: Session }) {
           </ul>
         )}
       </article>
-      <article className="rounded border border-stone-300 bg-white p-4">
+      <article className="panel">
         <h3 className="font-semibold">Asked for in paragraph 1-17, not stored</h3>
         <ul className="mt-2 space-y-2">
           {report.notStored.map((item) => (
@@ -68,15 +102,6 @@ export function CouncilView({ session }: { session: Session }) {
         </ul>
       </article>
     </section>
-  );
-}
-
-function Count({ label, value }: { label: string; value: number }) {
-  return (
-    <div>
-      <dt className="text-sm text-stone-600">{label}</dt>
-      <dd className="text-2xl font-semibold">{value}</dd>
-    </div>
   );
 }
 

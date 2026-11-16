@@ -6,12 +6,14 @@ import {
   type Inspection,
   type OrgUser,
   type Session,
+  type WorkFinding,
 } from "./api.ts";
 import { EnvironmentalDetail, EnvironmentalLists, type EnvironmentalSelection } from "./Environmental.tsx";
 import { ExposureDetail, ExposureLists } from "./OccupationalHealth.tsx";
 import { AskView } from "./Ask.tsx";
 import { AsohmsView } from "./Asohms.tsx";
 import { CouncilView } from "./Council.tsx";
+import { Bars, Flow } from "./Charts.tsx";
 
 const ACCOUNTS = [
   ["Shop 2 safety officer", "shop2.safety@camp-sentinel.example"],
@@ -36,6 +38,10 @@ const SEVERITY = [
 ] as const;
 
 const sessionKey = "sentinel.session";
+const findingKey = "sentinel.finding";
+
+const STEP_LABELS = ["Identify", "Assess", "Decide", "Assign", "Verify", "Close"] as const;
+const STEP_WHO = ["Safety officer", "Safety officer", "Commander", "Safety officer", "Supervisor", "Safety officer"] as const;
 
 function Logo() {
   return (
@@ -67,30 +73,43 @@ export default function App() {
 
   return (
     <div className="min-h-screen">
-      <header className="border-b-4 border-[#ffcc00] bg-black text-white">
-        <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-6 py-4">
+      <header className="border-b border-[#e4c27a] bg-[#2c261f] text-[#fffdf8]">
+        <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-4 px-6 py-4">
           <div className="flex items-center gap-3">
             <Logo />
             <div>
-              <p className="text-xs font-semibold tracking-widest text-[#ffcc00]">CAMP SENTINEL</p>
+              <p className="text-xs font-semibold tracking-widest text-[#e4c27a]">CAMP SENTINEL</p>
               <h1 className="text-2xl font-semibold leading-none">SENTINEL</h1>
-              <p className="mt-1 max-w-2xl text-sm text-white">
-                Safety and occupational health records for the person who reports a hazard, the shop, the safety officer, and the commander.
-              </p>
             </div>
           </div>
           {session ? (
             <div className="text-right">
               <p className="font-medium">{session.displayName}</p>
-              <p className="text-sm text-white">{session.roles.join(", ")}</p>
-              <button className="mt-2 text-sm text-[#ffcc00] underline" type="button" onClick={signOut}>
+              <div className="mt-2 flex flex-wrap justify-end gap-2">
+                {ACCOUNTS.map(([label, email]) => {
+                  const active = session.displayName.toLowerCase() === label.toLowerCase();
+                  return (
+                    <button
+                      key={email}
+                      className={active ? "chip-on" : "chip"}
+                      type="button"
+                      onClick={() => {
+                        api.signIn(email, "camp-sentinel-demo").then(signIn).catch(() => undefined);
+                      }}
+                    >
+                      {label.replace("Shop 2 ", "")}
+                    </button>
+                  );
+                })}
+              </div>
+              <button className="mt-2 text-sm text-[#e4c27a] underline" type="button" onClick={signOut}>
                 Sign out
               </button>
             </div>
           ) : null}
         </div>
       </header>
-      <main className="mx-auto max-w-6xl px-6 py-8">
+      <main className="mx-auto max-w-5xl px-6 py-8">
         {session ? <Workspace session={session} /> : <SignIn onSignIn={signIn} />}
       </main>
     </div>
@@ -123,7 +142,7 @@ function SignIn({ onSignIn }: { onSignIn: (session: Session) => void }) {
         <input className="mt-1 w-full rounded border border-stone-300 bg-white px-3 py-2" type="password" value={password} onChange={(event) => setPassword(event.target.value)} />
       </label>
       {error ? <p className="text-sm text-red-800">{error}</p> : null}
-      <button className="rounded bg-stone-900 px-4 py-2 text-white" type="submit">
+      <button className="btn" type="submit">
         Sign in
       </button>
       <div className="space-y-2 pt-4 text-sm text-stone-600">
@@ -146,252 +165,326 @@ function SignIn({ onSignIn }: { onSignIn: (session: Session) => void }) {
   );
 }
 
+type Place = "home" | "council" | "asohms" | "ask" | "environment" | "exposure" | "reports";
+
 function Workspace({ session }: { session: Session }) {
-  const [inspections, setInspections] = useState<Inspection[]>([]);
   const [reports, setReports] = useState<EmployeeReport[]>([]);
   const [inspectionId, setInspectionId] = useState<string | null>(null);
   const [reportId, setReportId] = useState<string | null>(null);
   const [environmental, setEnvironmental] = useState<EnvironmentalSelection | null>(null);
   const [exposureId, setExposureId] = useState<string | null>(null);
-  const [showCouncil, setShowCouncil] = useState(false);
-  const [showAsohms, setShowAsohms] = useState(false);
-  const [showAsk, setShowAsk] = useState(false);
-  const [findingId, setFindingId] = useState<string | null>(null);
+  const [place, setPlace] = useState<Place>("home");
+  const [findingId, setFindingId] = useState<string | null>(() => sessionStorage.getItem(findingKey));
+  const [work, setWork] = useState<{ inspections: Inspection[]; findings: WorkFinding[] }>({ inspections: [], findings: [] });
   const [error, setError] = useState<string | null>(null);
 
-  async function refreshInspections() {
-    const body = await api.inspections(session.token);
-    setInspections(body.inspections);
+  function openFinding(id: string) {
+    sessionStorage.setItem(findingKey, id);
+    setFindingId(id);
+    setPlace("home");
   }
 
-  async function refreshReports() {
-    const body = await api.reports(session.token);
-    setReports(body.employeeReports);
+  function goHome() {
+    sessionStorage.removeItem(findingKey);
+    setFindingId(null);
+    setInspectionId(null);
+    setReportId(null);
+    setEnvironmental(null);
+    setExposureId(null);
+    setPlace("home");
+  }
+
+  async function refresh() {
+    const [nextWork, nextReports] = await Promise.all([api.work(session.token), api.reports(session.token)]);
+    setWork(nextWork);
+    setReports(nextReports.employeeReports);
   }
 
   useEffect(() => {
-    Promise.all([refreshInspections(), refreshReports()]).catch((caught: unknown) => setError(messageOf(caught)));
+    refresh().catch((caught: unknown) => setError(messageOf(caught)));
   }, [session.token]);
 
   return (
-    <div className="grid gap-8 lg:grid-cols-[18rem_1fr]">
-      <section className="space-y-8">
-        <div>
-          <h2 className="mb-3 text-lg font-semibold">Council</h2>
+    <div className="space-y-6">
+      <nav className="flex flex-wrap gap-2" aria-label="Sections">
+        <button className={place === "home" && !findingId && !inspectionId ? "btn" : "btn-quiet"} type="button" onClick={goHome}>
+          Overview
+        </button>
+        {(
+          [
+            ["council", "Council"],
+            ["asohms", "Practice notes"],
+            ["ask", "Ask"],
+            ["environment", "Environment"],
+            ["exposure", "Health"],
+            ["reports", "Reports"],
+          ] as const
+        ).map(([value, label]) => (
           <button
-            className={`w-full rounded border px-3 py-2 text-left ${showCouncil ? "border-stone-900 bg-white" : "border-stone-300 bg-stone-50"}`}
+            key={value}
+            className={place === value ? "btn" : "btn-quiet"}
             type="button"
             onClick={() => {
-              setShowCouncil(true);
-              setShowAsohms(false);
-                setShowAsk(false);
-              setInspectionId(null);
-              setReportId(null);
-              setEnvironmental(null);
-              setExposureId(null);
+              setPlace(value);
               setFindingId(null);
-            }}
-          >
-            Counts for this organization
-          </button>
-        </div>
-        <div>
-          <h2 className="mb-3 text-lg font-semibold">ASOHMS practice</h2>
-          <button
-            className={`w-full rounded border px-3 py-2 text-left ${showAsohms ? "border-stone-900 bg-white" : "border-stone-300 bg-stone-50"}`}
-            type="button"
-            onClick={() => {
-              setShowAsohms(true);
-              setShowCouncil(false);
-              setShowAsk(false);
+              sessionStorage.removeItem(findingKey);
               setInspectionId(null);
-              setReportId(null);
-              setEnvironmental(null);
-              setExposureId(null);
-              setFindingId(null);
             }}
           >
-            Six objectives
+            {label}
           </button>
+        ))}
+      </nav>
+      {error ? <p className="text-sm text-red-800">{error}</p> : null}
+      {findingId ? (
+        <FindingRecord session={session} findingId={findingId} onBack={goHome} />
+      ) : inspectionId ? (
+        <InspectionDetail session={session} inspectionId={inspectionId} onSelectFinding={openFinding} onBack={goHome} />
+      ) : place === "council" ? (
+        <CouncilView session={session} />
+      ) : place === "asohms" ? (
+        <AsohmsView session={session} />
+      ) : place === "ask" ? (
+        <AskView session={session} findingId={null} />
+      ) : place === "environment" ? (
+        <div className="space-y-6">
+          <EnvironmentalLists session={session} selected={environmental} onSelect={setEnvironmental} />
+          {environmental ? (
+            <EnvironmentalDetail session={session} selection={environmental} onSelectFinding={openFinding} />
+          ) : (
+            <p className="text-sm text-[#6d6256]">No environmental record is open. Add an obligation, a waste stream, or a spill, then open a finding from it.</p>
+          )}
         </div>
-        <div>
-          <h2 className="mb-3 text-lg font-semibold">Ask</h2>
-          <button
-            className={`w-full rounded border px-3 py-2 text-left ${showAsk ? "border-stone-900 bg-white" : "border-stone-300 bg-stone-50"}`}
-            type="button"
-            onClick={() => {
-              setShowAsk(true);
-              setShowCouncil(false);
-              setShowAsohms(false);
-              setInspectionId(null);
-              setReportId(null);
-              setEnvironmental(null);
-              setExposureId(null);
-            }}
-          >
-            Question
-          </button>
+      ) : place === "exposure" ? (
+        <div className="space-y-6">
+          <ExposureLists session={session} selectedId={exposureId} onSelect={setExposureId} />
+          {exposureId ? (
+            <ExposureDetail session={session} groupId={exposureId} />
+          ) : (
+            <p className="text-sm text-[#6d6256]">No exposure group is open. Add a group for a shop, an agent, and a headcount.</p>
+          )}
         </div>
-        <div>
-          <h2 className="mb-3 text-lg font-semibold">Inspections</h2>
-          {error ? <p className="mb-3 text-sm text-red-800">{error}</p> : null}
-          <ul className="space-y-2">
-            {inspections.map((inspection) => (
-              <li key={inspection.id}>
-                <button
-                  className={`w-full rounded border px-3 py-2 text-left ${inspection.id === inspectionId ? "border-stone-900 bg-white" : "border-stone-300 bg-stone-50"}`}
-                  type="button"
-                  onClick={() => {
-                    setInspectionId(inspection.id);
-                    setReportId(null);
-                    setEnvironmental(null);
-                    setExposureId(null);
-                    setShowCouncil(false);
-                setShowAsohms(false);
-                setShowAsk(false);
-                    setFindingId(null);
-                  }}
-                >
-                  <span className="block font-medium">{inspection.shopName}</span>
-                  <span className="text-sm text-stone-600">
-                    {inspection.inspectedOn} · {inspection.status}
-                  </span>
-                </button>
-              </li>
-            ))}
-          </ul>
-          {session.roles.includes("safety officer") ? (
-            <NewInspection
+      ) : place === "reports" ? (
+        <div className="space-y-6">
+          <section className="panel">
+            <h2 className="text-2xl font-semibold">Written reports</h2>
+            <p className="mt-1 text-sm text-[#6d6256]">File what you saw. The shared log can leave your name off.</p>
+            <div className="mt-4">
+              <Bars
+                items={[
+                  { label: "Name on the log", value: reports.filter((report) => report.showName).length, tone: "#3d342b" },
+                  { label: "Name withheld", value: reports.filter((report) => !report.showName).length, tone: "#b8893a" },
+                ]}
+              />
+            </div>
+            {reports.length === 0 ? <p className="mt-3 text-sm text-[#6d6256]">No written report yet.</p> : null}
+            <ul className="mt-3 space-y-2">
+              {reports.map((report) => (
+                <li key={report.id}>
+                  <button className="text-left underline" type="button" onClick={() => setReportId(report.id)}>
+                    {report.text}
+                  </button>
+                </li>
+              ))}
+            </ul>
+            <ReportForm
               token={session.token}
-              onCreated={(inspection) => {
-                setInspectionId(inspection.id);
-                setReportId(null);
-                setEnvironmental(null);
-                setExposureId(null);
-                setShowCouncil(false);
-                setShowAsohms(false);
-                setShowAsk(false);
-                setFindingId(null);
-                refreshInspections().catch((caught: unknown) => setError(messageOf(caught)));
+              onCreated={(report) => {
+                setReportId(report.id);
+                refresh().catch((caught: unknown) => setError(messageOf(caught)));
               }}
             />
-          ) : null}
+          </section>
+          {reportId ? <ReportDetail session={session} reportId={reportId} onSelectFinding={openFinding} /> : null}
         </div>
-        <div>
-          <h2 className="mb-3 text-lg font-semibold">Written reports</h2>
-          <ul className="space-y-2">
-            {reports.map((report) => (
-              <li key={report.id}>
-                <button
-                  className={`w-full rounded border px-3 py-2 text-left ${report.id === reportId ? "border-stone-900 bg-white" : "border-stone-300 bg-stone-50"}`}
-                  type="button"
-                  onClick={() => {
-                    setReportId(report.id);
-                    setInspectionId(null);
-                    setEnvironmental(null);
-                    setExposureId(null);
-                    setShowCouncil(false);
-                setShowAsohms(false);
-                setShowAsk(false);
-                    setFindingId(null);
-                  }}
-                >
-                  <span className="block font-medium">{report.text}</span>
-                  <span className="text-sm text-stone-600">
-                    {report.showName && report.reporterDisplayName ? report.reporterDisplayName : "Name withheld"}
-                  </span>
-                </button>
-              </li>
-            ))}
-          </ul>
-          <ReportForm
-            token={session.token}
-            onCreated={(report) => {
-              setReportId(report.id);
-              setInspectionId(null);
-              setEnvironmental(null);
-              setExposureId(null);
-              setShowCouncil(false);
-                setShowAsohms(false);
-                setShowAsk(false);
-              setFindingId(null);
-              refreshReports().catch((caught: unknown) => setError(messageOf(caught)));
-            }}
-          />
-        </div>
-        <EnvironmentalLists
-            session={session}
-            selected={environmental}
-            onSelect={(selection) => {
-              setEnvironmental(selection);
-              setInspectionId(null);
-              setReportId(null);
-              setExposureId(null);
-              setShowCouncil(false);
-                setShowAsohms(false);
-                setShowAsk(false);
-              setFindingId(null);
-            }}
-          />
-        <ExposureLists
-          session={session}
-          selectedId={exposureId}
-          onSelect={(id) => {
-            setExposureId(id);
-            setInspectionId(null);
-            setReportId(null);
-            setEnvironmental(null);
-            setShowCouncil(false);
-                setShowAsohms(false);
-                setShowAsk(false);
-            setFindingId(null);
-          }}
-        />
-      </section>
-      {inspectionId ? (
-        <InspectionDetail
-          session={session}
-          inspectionId={inspectionId}
-          findingId={findingId}
-          onSelectFinding={setFindingId}
-        />
-      ) : reportId ? (
-        <ReportDetail
-          session={session}
-          reportId={reportId}
-          findingId={findingId}
-          onSelectFinding={setFindingId}
-        />
-      ) : environmental ? (
-        <div className="space-y-6">
-          <EnvironmentalDetail session={session} selection={environmental} onSelectFinding={setFindingId} />
-          {findingId ? <FindingRecord session={session} findingId={findingId} /> : null}
-        </div>
-      ) : exposureId ? (
-        <ExposureDetail session={session} groupId={exposureId} />
-      ) : showCouncil ? (
-        <CouncilView session={session} />
-      ) : showAsohms ? (
-        <AsohmsView session={session} />
-      ) : showAsk ? (
-        <AskView session={session} findingId={findingId} />
       ) : (
-        <p className="text-stone-600">Choose an inspection, a written report, an environmental record, an exposure group, or a practice note.</p>
+        <Home
+          session={session}
+          work={work}
+          reports={reports}
+          onOpenInspection={(id) => setInspectionId(id)}
+          onOpenFinding={openFinding}
+          onCreated={() => refresh().catch((caught: unknown) => setError(messageOf(caught)))}
+        />
       )}
     </div>
   );
 }
 
+function Home({
+  session,
+  work,
+  reports,
+  onOpenInspection,
+  onOpenFinding,
+  onCreated,
+}: {
+  session: Session;
+  work: { inspections: Inspection[]; findings: WorkFinding[] };
+  reports: EmployeeReport[];
+  onOpenInspection: (id: string) => void;
+  onOpenFinding: (id: string) => void;
+  onCreated: () => void;
+}) {
+  const safety = session.roles.includes("safety officer");
+  const identify = work.inspections.filter((inspection) => !work.findings.some((finding) => finding.inspectionId === inspection.id));
+  const count = (step: WorkFinding["step"]) => work.findings.filter((finding) => finding.step === step).length;
+  const named = reports.filter((report) => report.showName).length;
+  const lanes = [
+    {
+      role: "Safety officer",
+      active: safety,
+      talk: "Starts the inspection, names the hazard, records the matrix, assigns the action, and closes it.",
+      findings: work.findings.filter((finding) => finding.step === "assess" || finding.step === "assign" || finding.step === "close"),
+    },
+    {
+      role: "Commander",
+      active: session.roles.includes("commander"),
+      talk: "Accepts or rejects the residual risk. A blocked authority check does not stop the action.",
+      findings: work.findings.filter((finding) => finding.step === "decide" || finding.authorityResult === "blocked"),
+    },
+    {
+      role: "Supervisor",
+      active: session.roles.includes("supervisor"),
+      talk: "Finishes the assigned work and attaches evidence. Someone else verifies it.",
+      findings: work.findings.filter((finding) => finding.step === "verify"),
+    },
+    {
+      role: "Employee",
+      active: !safety && !session.roles.includes("commander") && !session.roles.includes("supervisor"),
+      talk: "Files a written report. The name can stay off the shared log.",
+      findings: [] as WorkFinding[],
+    },
+  ];
+
+  return (
+    <div className="space-y-5">
+      <section className="panel">
+        <h2 className="text-2xl font-semibold">Shop 2, all four people</h2>
+        <p className="mt-2 max-w-2xl text-[#5c5348]">
+          Every section stays on this page. The gold account in the header is who can take the next action. Open a finding when you want to walk through it.
+        </p>
+        <div className="mt-5 overflow-x-auto">
+          <Flow
+            steps={[
+              { label: "Identify", who: "Safety officer", value: identify.length },
+              { label: "Assess", who: "Safety officer", value: count("assess") },
+              { label: "Decide", who: "Commander", value: count("decide") },
+              { label: "Assign", who: "Safety officer", value: count("assign") },
+              { label: "Verify", who: "Supervisor", value: count("verify") },
+              { label: "Close", who: "Safety officer", value: count("close") + count("done") },
+            ]}
+          />
+        </div>
+      </section>
+      <div className="grid gap-4 lg:grid-cols-2">
+        <section className="panel">
+          <h3 className="font-semibold">Findings by step</h3>
+          <div className="mt-4">
+            <Bars
+              items={[
+                { label: "Assess", value: count("assess"), tone: "#3d342b" },
+                { label: "Decide", value: count("decide"), tone: "#8a6a32" },
+                { label: "Assign", value: count("assign"), tone: "#b8893a" },
+                { label: "Verify", value: count("verify"), tone: "#c4a15a" },
+                { label: "Close", value: count("close"), tone: "#7d8a62" },
+                { label: "Closed", value: count("done"), tone: "#5f6b4c" },
+              ]}
+            />
+          </div>
+        </section>
+        <section className="panel">
+          <h3 className="font-semibold">Written reports</h3>
+          <div className="mt-4">
+            <Bars
+              items={[
+                { label: "Name on the log", value: named, tone: "#3d342b" },
+                { label: "Name withheld", value: reports.length - named, tone: "#b8893a" },
+              ]}
+            />
+          </div>
+          <p className="mt-3 text-sm text-[#6d6256]">{reports.length} report{reports.length === 1 ? "" : "s"} on the shared log.</p>
+        </section>
+      </div>
+      <div className="grid gap-4 lg:grid-cols-2">
+        {lanes.map((lane) => (
+          <section key={lane.role} className={`panel ${lane.active ? "ring-2 ring-[#e4c27a]" : ""}`}>
+            <h3 className="font-semibold">{lane.role}</h3>
+            <p className="mt-1 text-sm text-[#6d6256]">{lane.talk}</p>
+            {lane.role === "Safety officer" && identify.length > 0 ? (
+              <ul className="mt-3 space-y-2">
+                {identify.map((inspection) => (
+                  <li key={inspection.id}>
+                    <button className="text-left" type="button" onClick={() => onOpenInspection(inspection.id)}>
+                      <span className="text-xs font-semibold tracking-wide text-[#8a6a32]">Identify</span>
+                      <span className="block">{inspection.shopName} · {inspection.inspectedOn}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+            {lane.role === "Employee" ? (
+              <ul className="mt-3 space-y-2">
+                {reports.length === 0 ? <li className="text-sm text-[#6d6256]">No written report yet.</li> : null}
+                {reports.map((report) => (
+                  <li key={report.id}>
+                    <span className="text-xs font-semibold tracking-wide text-[#8a6a32]">
+                      {report.showName && report.reporterDisplayName ? report.reporterDisplayName : "Name withheld"}
+                    </span>
+                    <span className="block">{report.text}</span>
+                  </li>
+                ))}
+              </ul>
+            ) : lane.findings.length === 0 ? (
+              <p className="mt-3 text-sm text-[#6d6256]">Nothing is waiting in this lane.</p>
+            ) : (
+              <ul className="mt-3 space-y-2">
+                {lane.findings.map((finding) => (
+                  <li key={`${lane.role}-${finding.id}`}>
+                    <button className="text-left" type="button" onClick={() => onOpenFinding(finding.id)}>
+                      <span className="text-xs font-semibold tracking-wide text-[#8a6a32]">{stepTitle(finding.step)}</span>
+                      <span className="block">{finding.originalText}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {lane.role === "Safety officer" && safety ? (
+              <NewInspection
+                token={session.token}
+                onCreated={(inspection) => {
+                  onOpenInspection(inspection.id);
+                  onCreated();
+                }}
+              />
+            ) : null}
+            {lane.role === "Employee" ? <ReportForm token={session.token} onCreated={() => onCreated()} /> : null}
+          </section>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function stepTitle(step: WorkFinding["step"]): string {
+  if (step === "assess") return "Assess";
+  if (step === "decide") return "Decide";
+  if (step === "assign") return "Assign";
+  if (step === "verify") return "Verify";
+  if (step === "close") return "Close";
+  return "Closed";
+}
+
 function InspectionDetail({
   session,
   inspectionId,
-  findingId,
   onSelectFinding,
+  onBack,
 }: {
   session: Session;
   inspectionId: string;
-  findingId: string | null;
   onSelectFinding: (id: string) => void;
+  onBack: () => void;
 }) {
   const [detail, setDetail] = useState<Awaited<ReturnType<typeof api.inspection>> | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -410,16 +503,17 @@ function InspectionDetail({
 
   return (
     <section className="space-y-6">
-      <div>
-        <h2 className="text-2xl font-semibold">{detail.inspection.shopName}</h2>
-        <p className="text-stone-600">
-          {detail.inspection.inspectedOn} · {detail.inspection.status}
+      <div className="panel">
+        <button className="text-sm text-[#8a6a32] underline" type="button" onClick={onBack}>Back to your work</button>
+        <h2 className="mt-2 text-2xl font-semibold">Identify · {detail.inspection.shopName}</h2>
+        <p className="text-[#6d6256]">
+          {detail.inspection.inspectedOn}. Write the observation, then the finding. The finding words stay as first written.
         </p>
       </div>
       {error ? <p className="text-sm text-red-800">{error}</p> : null}
       <div className="space-y-3">
         {detail.observations.map((observation) => (
-          <article key={observation.id} className="rounded border border-stone-300 bg-white p-4">
+          <article key={observation.id} className="panel">
             <h3 className="font-medium">Observation</h3>
             <p className="mt-1">{observation.text}</p>
             <ul className="mt-3 space-y-2">
@@ -454,12 +548,11 @@ function InspectionDetail({
           onCreated={() => reload().catch((caught: unknown) => setError(messageOf(caught)))}
         />
       ) : null}
-      {findingId ? <FindingRecord session={session} findingId={findingId} /> : null}
     </section>
   );
 }
 
-function FindingRecord({ session, findingId }: { session: Session; findingId: string }) {
+function FindingRecord({ session, findingId, onBack }: { session: Session; findingId: string; onBack: () => void }) {
   const [chain, setChain] = useState<FindingChain | null>(null);
   const [users, setUsers] = useState<OrgUser[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -486,20 +579,41 @@ function FindingRecord({ session, findingId }: { session: Session; findingId: st
   const residual = chain.assessments.find((assessment) => assessment.phase === "residual");
   const safety = session.roles.includes("safety officer");
   const commander = session.roles.includes("commander");
+  const step = chainStep(chain);
+  const active = step === "done" ? STEP_LABELS.length : STEP_LABELS.indexOf(stepLabel(step));
 
   return (
     <div className="space-y-4">
       {error ? <p className="text-sm text-red-800">{error}</p> : null}
-      <article className="rounded border border-stone-300 bg-white p-4">
-        <h3 className="font-semibold">Finding</h3>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <button className="text-sm text-[#8a6a32] underline" type="button" onClick={onBack}>Back to your work</button>
+        <p className="text-sm text-[#6d6256]">Switch accounts in the header. This finding stays open.</p>
+      </div>
+      <ol className="grid gap-2 sm:grid-cols-6" aria-label="Finding steps">
+        {STEP_LABELS.map((label, index) => {
+          const state = index < active ? "Done" : index === active ? "Now" : "Later";
+          return (
+            <li
+              key={label}
+              className={`rounded-2xl px-3 py-2 text-sm ${index === active ? "bg-[#fffdf8] shadow-sm ring-2 ring-[#e4c27a]" : index < active ? "bg-[#efe6d6]" : "bg-[#e7e0d4] text-[#6d6256]"}`}
+            >
+              <span className="block text-xs tracking-wide">{state}</span>
+              {label}
+              <span className="block text-xs text-[#6d6256]">{STEP_WHO[index]}</span>
+            </li>
+          );
+        })}
+      </ol>
+      <article className="panel">
+        <h3 className="font-semibold">Identify</h3>
         <p className="mt-2">{chain.finding.originalText}</p>
-        <p className="mt-2 text-sm text-stone-600">Status: {chain.finding.status}. The original words stay on the record.</p>
+        <p className="mt-2 text-sm text-[#6d6256]">These words stay on the record. Status: {chain.finding.status}.</p>
       </article>
 
-      <article className="rounded border border-stone-300 bg-white p-4">
-        <h3 className="font-semibold">Hazard</h3>
-        {hazard ? <p className="mt-2">{hazard.description}</p> : <p className="mt-2 text-stone-600">No hazard yet.</p>}
-        {safety && !hazard ? (
+      <article className="panel">
+        <h3 className="font-semibold">Assess · safety officer</h3>
+        {hazard ? <p className="mt-2">Hazard: {hazard.description}</p> : <p className="mt-2 text-[#6d6256]">Name the hazard.</p>}
+        {step === "assess" && safety && !hazard ? (
           <HazardForm
             token={session.token}
             findingId={findingId}
@@ -511,7 +625,7 @@ function FindingRecord({ session, findingId }: { session: Session; findingId: st
       <AssessmentBlock
         title="Initial risk"
         assessment={initial}
-        canEstimate={safety && Boolean(hazard) && !initial}
+        canEstimate={step === "assess" && safety && Boolean(hazard) && !initial}
         onEstimate={async (probabilityCode, severityCode) => {
           if (!hazard) return;
           await api.addAssessment(session.token, hazard.id, "initial", probabilityCode, severityCode);
@@ -521,7 +635,7 @@ function FindingRecord({ session, findingId }: { session: Session; findingId: st
       <AssessmentBlock
         title="Residual risk"
         assessment={residual}
-        canEstimate={safety && Boolean(initial) && !residual}
+        canEstimate={step === "assess" && safety && Boolean(initial) && !residual}
         onEstimate={async (probabilityCode, severityCode) => {
           if (!hazard) return;
           await api.addAssessment(session.token, hazard.id, "residual", probabilityCode, severityCode);
@@ -529,8 +643,8 @@ function FindingRecord({ session, findingId }: { session: Session; findingId: st
         }}
       />
 
-      {residual ? (
-        <article className="rounded border border-stone-300 bg-white p-4">
+      {residual && (step === "assess" || chain.controls.length > 0) ? (
+        <article className="panel">
           <h3 className="font-semibold">Controls</h3>
           <ul className="mt-2 space-y-2">
             {chain.controls.map((control) => (
@@ -539,7 +653,7 @@ function FindingRecord({ session, findingId }: { session: Session; findingId: st
               </li>
             ))}
           </ul>
-          {safety ? (
+          {step === "assess" && safety ? (
             <ControlForm
               token={session.token}
               assessmentId={residual.id}
@@ -549,8 +663,9 @@ function FindingRecord({ session, findingId }: { session: Session; findingId: st
         </article>
       ) : null}
 
-      <article className="rounded border border-stone-300 bg-white p-4">
-        <h3 className="font-semibold">Commander's decision</h3>
+      <article className="panel">
+        <h3 className="font-semibold">Decide · commander</h3>
+        <p className="mt-1 text-sm text-[#6d6256]">Accept or reject. The authority check is a separate result. A blocked acceptance still leaves the action free to assign.</p>
         <ul className="mt-2 space-y-3">
           {chain.decisions.map((decision) => {
             const check = chain.authorityChecks.find((item) => item.decisionId === decision.id);
@@ -574,7 +689,7 @@ function FindingRecord({ session, findingId }: { session: Session; findingId: st
             );
           })}
         </ul>
-        {commander && residual ? (
+        {step === "decide" && commander && residual ? (
           <DecisionForm
             token={session.token}
             assessmentId={residual.id}
@@ -583,8 +698,9 @@ function FindingRecord({ session, findingId }: { session: Session; findingId: st
         ) : null}
       </article>
 
-      <article className="rounded border border-stone-300 bg-white p-4">
-        <h3 className="font-semibold">Corrective action</h3>
+      <article className="panel">
+        <h3 className="font-semibold">Assign, verify, close</h3>
+        <p className="mt-1 text-sm text-[#6d6256]">The safety officer assigns it. The supervisor finishes it. Someone else verifies it. The safety officer closes it.</p>
         <ul className="mt-2 space-y-3">
           {chain.actions.map((action) => (
             <li key={action.id} className="rounded border border-stone-200 p-3">
@@ -608,7 +724,7 @@ function FindingRecord({ session, findingId }: { session: Session; findingId: st
               ) : null}
               {action.ownerUserId === session.userId && action.status !== "closed" && action.status !== "completed" ? (
                 <button
-                  className="mt-2 rounded bg-stone-900 px-3 py-1 text-sm text-white"
+                  className="btn mt-2"
                   type="button"
                   onClick={() =>
                     api.completeAction(session.token, action.id).then(reload).catch((caught: unknown) => setError(messageOf(caught)))
@@ -617,16 +733,16 @@ function FindingRecord({ session, findingId }: { session: Session; findingId: st
                   Mark the work complete
                 </button>
               ) : null}
-              {action.completedBy && action.completedBy !== session.userId && action.status === "completed" ? (
+              {step === "verify" && action.completedBy && action.completedBy !== session.userId && action.status === "completed" ? (
                 <VerifyForm
                   token={session.token}
                   actionId={action.id}
                   onCreated={() => reload().catch((caught: unknown) => setError(messageOf(caught)))}
                 />
               ) : null}
-              {safety && action.status === "completed" ? (
+              {step === "close" && safety && action.status === "completed" ? (
                 <button
-                  className="mt-2 rounded border border-stone-900 px-3 py-1 text-sm"
+                  className="btn-quiet mt-2"
                   type="button"
                   onClick={() =>
                     api.closeAction(session.token, action.id).then(reload).catch((caught: unknown) => setError(messageOf(caught)))
@@ -648,7 +764,7 @@ function FindingRecord({ session, findingId }: { session: Session; findingId: st
             ))}
           </ul>
         ) : null}
-        {safety && hazard ? (
+        {step === "assign" && safety && hazard ? (
           <ActionForm
             token={session.token}
             findingId={findingId}
@@ -658,8 +774,36 @@ function FindingRecord({ session, findingId }: { session: Session; findingId: st
           />
         ) : null}
       </article>
+      <details className="panel">
+        <summary className="cursor-pointer font-semibold">Ask about this finding</summary>
+        <div className="mt-4">
+          <AskView session={session} findingId={findingId} />
+        </div>
+      </details>
     </div>
   );
+}
+
+function chainStep(chain: FindingChain): WorkFinding["step"] {
+  const initial = chain.assessments.some((assessment) => assessment.phase === "initial");
+  const residual = chain.assessments.some((assessment) => assessment.phase === "residual");
+  const action = chain.actions[0];
+  const passed = chain.verifications.some((verification) => verification.result === "pass");
+  if (!chain.hazards[0] || !initial || !residual || chain.controls.length === 0) return "assess";
+  if (chain.decisions.length === 0) return "decide";
+  if (!action) return "assign";
+  if (action.status === "open" || !passed) return "verify";
+  if (action.status !== "closed") return "close";
+  return "done";
+}
+
+function stepLabel(step: WorkFinding["step"]): (typeof STEP_LABELS)[number] {
+  if (step === "assess") return "Assess";
+  if (step === "decide") return "Decide";
+  if (step === "assign") return "Assign";
+  if (step === "verify") return "Verify";
+  if (step === "close") return "Close";
+  return "Close";
 }
 
 function AssessmentBlock({
@@ -678,7 +822,7 @@ function AssessmentBlock({
   const [error, setError] = useState<string | null>(null);
 
   return (
-    <article className="rounded border border-stone-300 bg-white p-4">
+    <article className="panel">
       <h3 className="font-semibold">{title}</h3>
       {assessment ? (
         <p className="mt-2">
@@ -698,7 +842,7 @@ function AssessmentBlock({
         >
           <Select label="Probability" value={probabilityCode} options={PROBABILITY} onChange={setProbabilityCode} />
           <Select label="Severity" value={severityCode} options={SEVERITY} onChange={setSeverityCode} />
-          <button className="rounded bg-stone-900 px-3 py-2 text-sm text-white" type="submit">
+          <button className="btn" type="submit">
             Record estimate
           </button>
           {error ? <p className="text-sm text-red-800">{error}</p> : null}
@@ -755,7 +899,7 @@ function NewInspection({ token, onCreated }: { token: string; onCreated: (inspec
         <input className="mt-1 w-full rounded border border-stone-300 bg-white px-2 py-1" value={inspectedOn} onChange={(event) => setInspectedOn(event.target.value)} />
       </label>
       {error ? <p className="text-sm text-red-800">{error}</p> : null}
-      <button className="rounded bg-stone-900 px-3 py-1 text-sm text-white" type="submit">
+      <button className="btn" type="submit">
         Start inspection
       </button>
     </form>
@@ -781,7 +925,7 @@ function ObservationForm({ token, inspectionId, onCreated }: { token: string; in
         <textarea className="mt-1 w-full rounded border border-stone-300 bg-white px-3 py-2 font-normal" value={text} onChange={(event) => setText(event.target.value)} />
       </label>
       {error ? <p className="text-sm text-red-800">{error}</p> : null}
-      <button className="rounded bg-stone-900 px-3 py-1 text-sm text-white" type="submit">
+      <button className="btn" type="submit">
         Save observation
       </button>
     </form>
@@ -817,7 +961,7 @@ function ReportForm({ token, onCreated }: { token: string; onCreated: (report: E
         Show my name on the shared log
       </label>
       {error ? <p className="text-sm text-red-800">{error}</p> : null}
-      <button className="rounded bg-stone-900 px-3 py-1 text-sm text-white" type="submit">
+      <button className="btn" type="submit">
         File report
       </button>
     </form>
@@ -827,12 +971,10 @@ function ReportForm({ token, onCreated }: { token: string; onCreated: (report: E
 function ReportDetail({
   session,
   reportId,
-  findingId,
   onSelectFinding,
 }: {
   session: Session;
   reportId: string;
-  findingId: string | null;
   onSelectFinding: (id: string) => void;
 }) {
   const [detail, setDetail] = useState<Awaited<ReturnType<typeof api.report>> | null>(null);
@@ -852,7 +994,7 @@ function ReportDetail({
 
   return (
     <section className="space-y-6">
-      <article className="rounded border border-stone-300 bg-white p-4">
+      <article className="panel">
         <h2 className="text-2xl font-semibold">Written report</h2>
         <p className="mt-2">{detail.report.text}</p>
         <p className="mt-2 text-sm text-stone-600">
@@ -884,7 +1026,6 @@ function ReportDetail({
         ) : null}
       </article>
       {error ? <p className="text-sm text-red-800">{error}</p> : null}
-      {findingId ? <FindingRecord session={session} findingId={findingId} /> : null}
     </section>
   );
 }
@@ -920,7 +1061,7 @@ function FindingForm({
         <textarea className="mt-1 w-full rounded border border-stone-300 px-3 py-2 font-normal" value={originalText} onChange={(event) => setOriginalText(event.target.value)} />
       </label>
       {error ? <p className="text-sm text-red-800">{error}</p> : null}
-      <button className="rounded bg-stone-900 px-3 py-1 text-sm text-white" type="submit">
+      <button className="btn" type="submit">
         Create finding
       </button>
     </form>
@@ -943,7 +1084,7 @@ function HazardForm({ token, findingId, onCreated }: { token: string; findingId:
         <textarea className="mt-1 w-full rounded border border-stone-300 px-3 py-2 font-normal" value={description} onChange={(event) => setDescription(event.target.value)} />
       </label>
       {error ? <p className="text-sm text-red-800">{error}</p> : null}
-      <button className="rounded bg-stone-900 px-3 py-1 text-sm text-white" type="submit">
+      <button className="btn" type="submit">
         Link hazard
       </button>
     </form>
@@ -984,7 +1125,7 @@ function ControlForm({
         <input className="mt-1 w-full rounded border border-stone-300 px-2 py-1 font-normal" value={howText} onChange={(event) => setHowText(event.target.value)} />
       </label>
       {error ? <p className="text-sm text-red-800">{error}</p> : null}
-      <button className="w-fit rounded bg-stone-900 px-3 py-1 text-sm text-white" type="submit">
+      <button className="btn" type="submit">
         Add control
       </button>
     </form>
@@ -1030,7 +1171,7 @@ function DecisionForm({
         Public is exposed
       </label>
       {error ? <p className="text-sm text-red-800">{error}</p> : null}
-      <button className="rounded bg-stone-900 px-3 py-2 text-sm text-white" type="submit">
+      <button className="btn" type="submit">
         Record decision
       </button>
     </form>
@@ -1076,7 +1217,7 @@ function ActionForm({
       </select>
       </label>
       {error ? <p className="text-sm text-red-800">{error}</p> : null}
-      <button className="rounded bg-stone-900 px-3 py-1 text-sm text-white" type="submit">
+      <button className="btn" type="submit">
         Assign action
       </button>
     </form>
@@ -1117,7 +1258,7 @@ function EvidenceForm({ token, actionId, onCreated }: { token: string; actionId:
       </label>
       <p className="text-sm text-stone-600">The record keeps the file name and a SHA-256 hash. The file itself is not stored.</p>
       {error ? <p className="text-sm text-red-800">{error}</p> : null}
-      <button className="rounded bg-stone-900 px-3 py-1 text-sm text-white" type="submit">
+      <button className="btn" type="submit">
         Attach evidence
       </button>
     </form>
@@ -1150,7 +1291,7 @@ function VerifyForm({ token, actionId, onCreated }: { token: string; actionId: s
       </label>
       {error ? <p className="text-sm text-red-800">{error}</p> : null}
       <div className="flex gap-2">
-        <button className="rounded bg-stone-900 px-3 py-1 text-sm text-white" type="submit">
+        <button className="btn" type="submit">
           Verify pass
         </button>
         <button

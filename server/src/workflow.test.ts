@@ -496,6 +496,21 @@ describe("Shop 2 workflow", () => {
     assert.equal(columns.some((column) => column.name === "is_official_assessment"), false);
   });
 
+  it("names the next step for this organization", async () => {
+    const safety = await login("shop2.safety@camp-sentinel.example");
+    const otherUnit = await login("unit2.safety@camp-sentinel.example");
+    const inspection = await api(safety, "POST", "/inspections", { shopName: "Shop 2", inspectedOn: "2026-11-15" });
+    const observation = await api(safety, "POST", `/inspections/${inspection.id}/observations`, { text: "North wall." });
+    const finding = await api(safety, "POST", `/observations/${observation.id}/findings`, {
+      originalText: "Unlabeled container in Shop 2, north wall.",
+    });
+    const work = await api(safety, "GET", "/work");
+    const row = (work.findings as Array<{ id: string; step: string }>).find((item) => item.id === finding.id);
+    assert.equal(row?.step, "assess");
+    const hidden = await api(otherUnit, "GET", "/work");
+    assert.equal((hidden.findings as Array<{ id: string }>).some((item) => item.id === finding.id), false);
+  });
+
   it("allows a general officer fixture to accept extremely high risk without changing the cell", async () => {
     const hash = hashPassword(DEMO_PASSWORD);
     db.prepare(
