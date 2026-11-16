@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { DatabaseSync } from "node:sqlite";
 import { ACCEPTANCE_CELLS, MATRIX_CELLS } from "./doctrine.ts";
 import { hashPassword } from "./passwords.ts";
+import { ensureLocations } from "./locations.ts";
 import { SOURCE_CARDS } from "./sources.ts";
 
 const SCHEMA = `
@@ -353,6 +354,7 @@ export function openDatabase(dbPath: string): DatabaseSync {
   ensureShopEmployee(db);
   ensureAsohms(db);
   ensureSources(db);
+  ensureLocations(db, hashPassword(DEMO_PASSWORD));
   return db;
 }
 

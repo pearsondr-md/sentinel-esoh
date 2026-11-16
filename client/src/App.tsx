@@ -15,11 +15,37 @@ import { AsohmsView } from "./Asohms.tsx";
 import { CouncilView } from "./Council.tsx";
 import { Bars, Flow } from "./Charts.tsx";
 
-const ACCOUNTS = [
-  ["Shop 2 safety officer", "shop2.safety@camp-sentinel.example"],
-  ["Shop 2 commander", "shop2.commander@camp-sentinel.example"],
-  ["Shop 2 supervisor", "shop2.supervisor@camp-sentinel.example"],
-  ["Shop 2 employee", "shop2.employee@camp-sentinel.example"],
+const PLACES = [
+  {
+    name: "Camp Sentinel",
+    accounts: [
+      ["Garrison", "garrison.safety@camp-sentinel.example", "Camp Sentinel Garrison Safety"],
+      ["Shop 2 safety", "shop2.safety@camp-sentinel.example", "Shop 2 Safety Officer"],
+      ["Shop 2 commander", "shop2.commander@camp-sentinel.example", "Shop 2 Commander"],
+      ["Shop 2 supervisor", "shop2.supervisor@camp-sentinel.example", "Shop 2 Supervisor"],
+      ["Shop 2 employee", "shop2.employee@camp-sentinel.example", "Shop 2 Employee"],
+      ["Wash rack", "wash.safety@camp-sentinel.example", "Vehicle wash rack Safety Officer"],
+      ["Dining facility", "dining.safety@camp-sentinel.example", "Dining facility Safety Officer"],
+    ],
+  },
+  {
+    name: "Camp Harrow",
+    accounts: [
+      ["Safety officer", "safety@camp-harrow.example", "Camp Harrow Safety Officer"],
+      ["Commander", "commander@camp-harrow.example", "Camp Harrow Commander"],
+      ["Supervisor", "supervisor@camp-harrow.example", "Camp Harrow Supervisor"],
+      ["Employee", "employee@camp-harrow.example", "Camp Harrow Employee"],
+    ],
+  },
+  {
+    name: "Camp Meridian",
+    accounts: [
+      ["Safety officer", "safety@camp-meridian.example", "Camp Meridian Safety Officer"],
+      ["Commander", "commander@camp-meridian.example", "Camp Meridian Commander"],
+      ["Supervisor", "supervisor@camp-meridian.example", "Camp Meridian Supervisor"],
+      ["Employee", "employee@camp-meridian.example", "Camp Meridian Employee"],
+    ],
+  },
 ] as const;
 
 const PROBABILITY = [
@@ -85,23 +111,7 @@ export default function App() {
           {session ? (
             <div className="text-right">
               <p className="font-medium">{session.displayName}</p>
-              <div className="mt-2 flex flex-wrap justify-end gap-2">
-                {ACCOUNTS.map(([label, email]) => {
-                  const active = session.displayName.toLowerCase() === label.toLowerCase();
-                  return (
-                    <button
-                      key={email}
-                      className={active ? "chip-on" : "chip"}
-                      type="button"
-                      onClick={() => {
-                        api.signIn(email, "camp-sentinel-demo").then(signIn).catch(() => undefined);
-                      }}
-                    >
-                      {label.replace("Shop 2 ", "")}
-                    </button>
-                  );
-                })}
-              </div>
+              <LocationSwitch displayName={session.displayName} onSignIn={signIn} />
               <button className="mt-2 text-sm text-[#e4c27a] underline" type="button" onClick={signOut}>
                 Sign out
               </button>
@@ -116,8 +126,41 @@ export default function App() {
   );
 }
 
+function LocationSwitch({ displayName, onSignIn }: { displayName: string; onSignIn: (session: Session) => void }) {
+  const current = PLACES.find((place) => place.accounts.some((account) => account[2] === displayName)) ?? PLACES[0];
+  const [placeName, setPlaceName] = useState<string>(current.name);
+  useEffect(() => {
+    setPlaceName(current.name);
+  }, [current.name]);
+  const place = PLACES.find((item) => item.name === placeName) ?? current;
+  return (
+    <div className="mt-2 flex flex-wrap items-center justify-end gap-2">
+      <label className="text-sm">
+        <span className="sr-only">Location</span>
+        <select className="rounded-full bg-[#fffdf8] px-2 py-1 text-[#2c261f]" value={place.name} onChange={(event) => setPlaceName(event.target.value)}>
+          {PLACES.map((item) => (
+            <option key={item.name}>{item.name}</option>
+          ))}
+        </select>
+      </label>
+      {place.accounts.map(([label, email, name]) => (
+        <button
+          key={email}
+          className={displayName === name ? "chip-on" : "chip"}
+          type="button"
+          onClick={() => {
+            api.signIn(email, "camp-sentinel-demo").then(onSignIn).catch(() => undefined);
+          }}
+        >
+          {label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function SignIn({ onSignIn }: { onSignIn: (session: Session) => void }) {
-  const [email, setEmail] = useState<string>(ACCOUNTS[0][1]);
+  const [email, setEmail] = useState("shop2.safety@camp-sentinel.example");
   const [password, setPassword] = useState("camp-sentinel-demo");
   const [error, setError] = useState<string | null>(null);
 
@@ -145,20 +188,24 @@ function SignIn({ onSignIn }: { onSignIn: (session: Session) => void }) {
       <button className="btn" type="submit">
         Sign in
       </button>
-      <div className="space-y-2 pt-4 text-sm text-stone-600">
-        <p>Camp Sentinel accounts</p>
-        {ACCOUNTS.map(([label, account]) => (
-          <button
-            key={account}
-            className="block underline"
-            type="button"
-            onClick={() => {
-              setEmail(account);
-              setPassword("camp-sentinel-demo");
-            }}
-          >
-            {label}
-          </button>
+      <div className="space-y-3 pt-4 text-sm text-stone-600">
+        {PLACES.map((place) => (
+          <div key={place.name}>
+            <p>{place.name}</p>
+            {place.accounts.map(([label, account]) => (
+              <button
+                key={account}
+                className="block underline"
+                type="button"
+                onClick={() => {
+                  setEmail(account);
+                  setPassword("camp-sentinel-demo");
+                }}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
         ))}
       </div>
     </form>
@@ -437,9 +484,9 @@ function Home({
   return (
     <div className="space-y-5">
       <section className="panel">
-        <h2 className="text-2xl font-semibold">Shop 2, all four people</h2>
+        <h2 className="text-2xl font-semibold">{session.displayName}</h2>
         <p className="mt-2 max-w-2xl text-[#5c5348]">
-          Every section stays on this page. The gold account in the header is who can take the next action. Open a finding when you want to walk through it.
+          These records belong to this location. Choose another camp or shop in the header to see that place's work.
         </p>
         <div className="mt-5 overflow-x-auto">
           <Flow

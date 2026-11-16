@@ -518,6 +518,35 @@ describe("Shop 2 workflow", () => {
     assert.equal((hidden.findings as Array<{ id: string }>).some((item) => item.id === finding.id), false);
   });
 
+  it("keeps each camp on its own records", async () => {
+    const garrison = await login("garrison.safety@camp-sentinel.example");
+    const harrow = await login("safety@camp-harrow.example");
+    const wash = await login("wash.safety@camp-sentinel.example");
+    const garrisonWork = await api(garrison, "GET", "/work");
+    const harrowWork = await api(harrow, "GET", "/work");
+    const washWork = await api(wash, "GET", "/work");
+    const texts = (body: Record<string, unknown>) =>
+      (body.findings as Array<{ originalText: string }>).map((row) => row.originalText);
+    assert.equal(texts(garrisonWork).includes("A vehicle in bay 1 is raised without jack stands."), true);
+    assert.equal(texts(garrisonWork).includes("The exit grate is slick with mud and has no grit."), true);
+    assert.equal(texts(washWork).includes("A vehicle in bay 1 is raised without jack stands."), false);
+    assert.equal(texts(washWork).includes("The exit grate is slick with mud and has no grit."), true);
+    assert.equal(texts(harrowWork).some((text) => text.includes("jack stands")), false);
+    assert.equal(texts(harrowWork).includes("The water buffalo at range 2 is empty on a training day."), true);
+    const finding = (garrisonWork.findings as Array<{ id: string; originalText: string }>).find((row) =>
+      row.originalText.includes("jack stands"),
+    );
+    assert.ok(finding);
+    const chain = await api(garrison, "GET", `/findings/${finding.id}`);
+    const residual = (chain.assessments as Array<{ phase: string; probabilityCode: string; severityCode: string; matrixLevel: string; matrixCell: string }>).find(
+      (row) => row.phase === "residual",
+    );
+    assert.ok(residual);
+    const cell = lookupMatrix(MATRIX_CELLS, residual.probabilityCode, residual.severityCode);
+    assert.equal(residual.matrixLevel, cell.matrixLevel);
+    assert.equal(residual.matrixCell, cell.matrixCell);
+  });
+
   it("allows a general officer fixture to accept extremely high risk without changing the cell", async () => {
     const hash = hashPassword(DEMO_PASSWORD);
     db.prepare(
