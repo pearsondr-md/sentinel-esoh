@@ -6,6 +6,19 @@ export type Session = {
   roles: string[];
 };
 
+export type WorkFinding = {
+  id: string;
+  originalText: string;
+  status: string;
+  inspectionId: string | null;
+  authorityResult: string | null;
+  actionId: string | null;
+  actionStatus: string | null;
+  actionDescription: string | null;
+  actionOwnerUserId: string | null;
+  step: "assess" | "decide" | "assign" | "verify" | "close" | "done";
+};
+
 export type Inspection = {
   id: string;
   shopName: string;
@@ -202,6 +215,7 @@ export const api = {
   signIn: (email: string, password: string) =>
     request<Session>("/session", null, "POST", { email, password }),
   inspections: (token: string) => request<{ inspections: Inspection[] }>("/inspections", token),
+  work: (token: string) => request<{ inspections: Inspection[]; findings: WorkFinding[] }>("/work", token),
   inspection: (token: string, id: string) =>
     request<{ inspection: Inspection; observations: Observation[]; findings: FindingSummary[] }>(
       `/inspections/${id}`,
