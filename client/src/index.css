@@ -61,6 +61,21 @@ body {
   font-weight: 600;
 }
 
+.task {
+  display: block;
+  width: 100%;
+  border: 1px solid #eadfce;
+  border-left: 4px solid #b8893a;
+  border-radius: 1rem;
+  background: #fffdf8;
+  padding: 0.9rem 1rem;
+  text-align: left;
+}
+
+.task:hover {
+  background: #f6f0e6;
+}
+
 .field {
   margin-top: 0.25rem;
   width: 100%;

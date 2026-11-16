@@ -1,4 +1,5 @@
 import type { DatabaseSync } from "node:sqlite";
+import { AUDIT_LINES } from "./library.ts";
 
 export const PERSONNEL_CATEGORIES = ["Soldier", "DA civilian", "contractor", "public", "other"] as const;
 export const MISHAP_OUTCOMES = [
@@ -68,6 +69,48 @@ export function ensureArmyRecords(db: DatabaseSync): void {
       meridian,
     );
     ensureTraining(db, "loc-train-meridian", "org-meridian", "Wildland fire", "Fuel farm and boundary crew", "2026-12-01", "2026-11-01", 4, meridian);
+  }
+  if (shop2) {
+    ensureAudit(db, "loc-audit-shop2", "org-shop-2", "Shop 2 annual look", "2026-11-10", shop2, { train: "not met" });
+  }
+  if (harrow) {
+    ensureAudit(db, "loc-audit-harrow", "org-harrow", "Camp Harrow annual look", "2026-11-09", harrow, {});
+  }
+  const redwood = userId(db, "safety@camp-redwood.example");
+  if (redwood) {
+    ensureAudit(db, "loc-audit-redwood", "org-redwood", "Camp Redwood annual look", "2026-11-11", redwood, { health: "not looked at" });
+  }
+}
+
+function ensureAudit(
+  db: DatabaseSync,
+  id: string,
+  orgId: string,
+  title: string,
+  auditedOn: string,
+  userIdValue: string,
+  results: Record<string, string>,
+): void {
+  if (exists(db, "program_audit", id)) return;
+  db.prepare(
+    `INSERT INTO program_audit (id, organization_id, title, audited_on, created_at, created_by)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+  ).run(id, orgId, title, auditedOn, NOW, userIdValue);
+  for (const line of AUDIT_LINES) {
+    const result = results[line.id] ?? "met";
+    let findingId: string | null = null;
+    if (result === "not met") {
+      findingId = `${id}-${line.id}`;
+      db.prepare(
+        `INSERT INTO finding (
+           id, organization_id, original_text, status, source_observation_id, source_report_id, program_area, created_at, created_by
+         ) VALUES (?, ?, ?, 'open', NULL, NULL, NULL, ?, ?)`,
+      ).run(findingId, orgId, line.text, NOW, userIdValue);
+    }
+    db.prepare(
+      `INSERT INTO program_audit_line (id, organization_id, audit_id, line_text, result, finding_id, created_at, created_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(`${id}-${line.id}`, orgId, id, line.text, result, findingId, NOW, userIdValue);
   }
 }
 

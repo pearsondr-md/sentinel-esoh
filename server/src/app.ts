@@ -21,7 +21,7 @@ import {
   SPILL_STEPS,
   TRAINING_TOPICS,
 } from "./army.ts";
-import { CHECKLISTS, LIBRARY } from "./library.ts";
+import { AUDIT_LINES, AUDIT_NOTICE, CHECKLISTS, LIBRARY } from "./library.ts";
 import {
   lookupAcceptance,
   lookupMatrix,
@@ -166,6 +166,73 @@ export function createApp(
     res.json({
       notice: "Counts of records at each camp. Not a score and not a rate. The words of another camp's findings are not included.",
       camps: campCounts(db, localDate()),
+    });
+  }));
+
+  app.get("/audit-lines", wrap((req, res) => {
+    requireActor(db, req);
+    res.json({ notice: AUDIT_NOTICE, lines: AUDIT_LINES });
+  }));
+
+  app.get("/audits", wrap((req, res) => {
+    const actor = requireActor(db, req);
+    const audits = listScoped(db, actor, "program_audit", "audited_on DESC").map((row) => publicAudit(db, row));
+    res.json({ notice: AUDIT_NOTICE, audits });
+  }));
+
+  app.post("/audits", wrap((req, res) => {
+    const actor = requireActor(db, req);
+    requireAnyRole(actor, ["safety officer", "commander"]);
+    const body = bodyOf(req);
+    rejectAuditExtras(body);
+    const answers = auditAnswers(body);
+    const organizationId = typeof body.organizationId === "string" ? body.organizationId : homeOrg(actor);
+    if (!actor.organizationIds.includes(organizationId)) {
+      throw new HttpError(404, "record not found");
+    }
+    const id = randomUUID();
+    const stamp = now();
+    db.prepare(
+      `INSERT INTO program_audit (id, organization_id, title, audited_on, created_at, created_by)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+    ).run(id, organizationId, requireString(body, "title"), requireDate(body, "auditedOn"), stamp, actor.id);
+    const findings: Array<{ id: string; originalText: string }> = [];
+    for (const line of AUDIT_LINES) {
+      const result = answers.get(line.id) ?? "not looked at";
+      let findingId: string | null = null;
+      if (result === "not met") {
+        const finding = insertFinding(db, actor, {
+          organizationId,
+          originalText: line.text,
+          sourceObservationId: null,
+          sourceReportId: null,
+        });
+        findingId = finding.id;
+        findings.push({ id: finding.id, originalText: finding.original_text });
+      }
+      db.prepare(
+        `INSERT INTO program_audit_line (id, organization_id, audit_id, line_text, result, finding_id, created_at, created_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).run(randomUUID(), organizationId, id, line.text, result, findingId, stamp, actor.id);
+    }
+    res.status(201).json({ notice: AUDIT_NOTICE, audit: publicAudit(db, getOne(db, "program_audit", id)), findings });
+  }));
+
+  app.get("/audits/:id", wrap((req, res) => {
+    const actor = requireActor(db, req);
+    const audit = mustGet(db, "program_audit", routeId(req.params.id), actor);
+    const lines = db.prepare(
+      "SELECT id, line_text, result, finding_id FROM program_audit_line WHERE audit_id = ? ORDER BY created_at",
+    ).all(audit.id) as Array<{ id: string; line_text: string; result: string; finding_id: string | null }>;
+    res.json({
+      notice: AUDIT_NOTICE,
+      audit: publicAudit(db, audit),
+      lines: lines.map((line) => ({
+        id: line.id,
+        text: line.line_text,
+        result: line.result,
+        findingId: line.finding_id,
+      })),
     });
   }));
 
@@ -770,6 +837,7 @@ export function createApp(
     const wasteRows = orgRows(db, "waste_stream", "id, name", ids, "created_at DESC");
     const spillRows = orgRows(db, "spill", "id, description", ids, "created_at DESC");
     const materialRows = orgRows(db, "hazardous_material", "id, name, storage_place", ids, "name DESC");
+    const auditRows = orgRows(db, "program_audit", "id, title, audited_on", ids, "audited_on DESC");
     const mishapRows = orgRows(db, "mishap", "id, narrative, personnel_category, outcome", ids, "occurred_on DESC");
     const trainingRows = orgRows(db, "training_session", "id, topic, audience, due_on, completed_on", ids, "due_on DESC");
     const fireRows = orgRows(db, "wildland_fire", "id, kind, place", ids, "occurred_on DESC");
@@ -800,6 +868,7 @@ export function createApp(
       wasteStreams: wasteRows.length,
       spills: spillRows.length,
       materials: materialRows.length,
+      audits: auditRows.length,
       mishaps: mishapRows.length,
       training: trainingRows.length,
       wildlandFires: fireRows.length,
@@ -822,6 +891,10 @@ export function createApp(
         materials: materialRows.map((row) => ({
           id: String(row.id),
           label: `${String(row.name)} · ${String(row.storage_place)}`,
+        })),
+        audits: auditRows.map((row) => ({
+          id: String(row.id),
+          label: `${String(row.title)} · ${String(row.audited_on)}`,
         })),
         mishaps: mishapRows.map((row) => ({
           id: String(row.id),
@@ -1029,7 +1102,7 @@ export function createApp(
 
   app.post("/findings/:id/hazards", wrap((req, res) => {
     const actor = requireActor(db, req);
-    requireRole(actor, "safety officer");
+    requireAnyRole(actor, ["safety officer", "commander"]);
     const finding = mustFinding(db, routeId(req.params.id), actor);
     const description = requireString(bodyOf(req), "description");
     const id = randomUUID();
@@ -1042,7 +1115,7 @@ export function createApp(
 
   app.post("/hazards/:id/assessments", wrap((req, res) => {
     const actor = requireActor(db, req);
-    requireRole(actor, "safety officer");
+    requireAnyRole(actor, ["safety officer", "commander"]);
     const hazard = mustGet(db, "hazard", routeId(req.params.id), actor);
     const body = bodyOf(req);
     rejectOverride(body);
@@ -1584,6 +1657,12 @@ function requireRole(actor: Actor, role: string): void {
   }
 }
 
+function requireAnyRole(actor: Actor, roles: string[]): void {
+  if (!roles.some((role) => actor.roles.includes(role))) {
+    throw new HttpError(403, `${roles.join(" or ")} is required`);
+  }
+}
+
 function homeOrg(actor: Actor): string {
   const org = actor.organizationIds[0];
   if (!org) {
@@ -1666,7 +1745,11 @@ function findingWorkRows(db: DatabaseSync, ids: string[]): Array<Record<string, 
        (SELECT owner_user_id FROM corrective_action WHERE finding_id = f.id ORDER BY created_at DESC LIMIT 1) AS action_owner_user_id,
        (SELECT COUNT(*) FROM verification v
           JOIN corrective_action ca ON ca.id = v.action_id
-          WHERE ca.finding_id = f.id AND v.result = 'pass') AS passed
+          WHERE ca.finding_id = f.id AND v.result = 'pass') AS passed,
+       (SELECT ra.matrix_level FROM risk_assessment ra
+          JOIN finding_hazard fh ON fh.hazard_id = ra.hazard_id
+          WHERE fh.finding_id = f.id AND ra.phase = 'residual'
+          ORDER BY ra.created_at DESC LIMIT 1) AS residual_level
      FROM finding f
      WHERE f.organization_id IN (${placeholders})
      ORDER BY f.created_at DESC`,
@@ -1686,6 +1769,7 @@ function publicWorkFinding(row: Record<string, unknown>) {
     actionOwnerUserId: row.action_owner_user_id,
     organizationName: row.organization_name,
     shopName: row.shop_name,
+    residualLevel: row.residual_level == null ? null : String(row.residual_level),
     step: workStep(row),
   };
 }
@@ -2019,6 +2103,45 @@ function requireDate(body: Record<string, unknown>, key: string): string {
   const value = requireString(body, key);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) throw new HttpError(400, `${key} must be a date`);
   return value;
+}
+
+function publicAudit(db: DatabaseSync, row: Record<string, unknown>) {
+  const counts = db.prepare(
+    "SELECT result, COUNT(*) AS n FROM program_audit_line WHERE audit_id = ? GROUP BY result",
+  ).all(String(row.id)) as Array<{ result: string; n: number }>;
+  const tally = Object.fromEntries(counts.map((item) => [item.result, Number(item.n)]));
+  return {
+    id: String(row.id),
+    title: String(row.title),
+    auditedOn: String(row.audited_on),
+    met: tally.met ?? 0,
+    notMet: tally["not met"] ?? 0,
+    notLookedAt: tally["not looked at"] ?? 0,
+  };
+}
+
+function auditAnswers(body: Record<string, unknown>): Map<string, string> {
+  const answers = Array.isArray(body.answers) ? body.answers : [];
+  const byId = new Map<string, string>();
+  for (const answer of answers) {
+    if (!answer || typeof answer !== "object") throw new HttpError(400, "each audit line needs a result");
+    const row = answer as { lineId?: unknown; result?: unknown };
+    if (typeof row.lineId !== "string" || !["met", "not met", "not looked at"].includes(String(row.result))) {
+      throw new HttpError(400, "each audit line needs a result");
+    }
+    byId.set(row.lineId, String(row.result));
+  }
+  for (const line of AUDIT_LINES) {
+    if (!byId.has(line.id)) throw new HttpError(400, "each audit line needs a result");
+  }
+  return byId;
+}
+
+function rejectAuditExtras(body: Record<string, unknown>): void {
+  rejectCompliance(body);
+  for (const key of ["score", "rating", "points", "star", "risk", "matrixLevel"]) {
+    if (key in body) throw new HttpError(400, "an audit is not a score and it is not a risk level");
+  }
 }
 
 function publicMaterial(row: Record<string, unknown>) {

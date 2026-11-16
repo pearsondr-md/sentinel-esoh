@@ -2,10 +2,12 @@ import { useEffect, useState, type FormEvent } from "react";
 import { PROGRAM_AREAS, WASTE_KINDS } from "../../shared/src/index.ts";
 import {
   api,
+  type AuditLine,
   type FindingSummary,
   type HazardousMaterial,
   type Mishap,
   type Obligation,
+  type ProgramAuditSummary,
   type Session,
   type Spill,
   type SpillStep,
@@ -21,7 +23,8 @@ export type EnvironmentalSelection =
   | { kind: "material"; id: string }
   | { kind: "mishap"; id: string }
   | { kind: "training"; id: string }
-  | { kind: "fire"; id: string };
+  | { kind: "fire"; id: string }
+  | { kind: "audit"; id: string };
 
 export function EnvironmentalLists({
   session,
@@ -42,11 +45,13 @@ export function EnvironmentalLists({
   const [sessions, setSessions] = useState<TrainingSession[]>([]);
   const [fires, setFires] = useState<WildlandFire[]>([]);
   const [fireNotice, setFireNotice] = useState("");
+  const [audits, setAudits] = useState<ProgramAuditSummary[]>([]);
+  const [auditNotice, setAuditNotice] = useState("");
   const [error, setError] = useState<string | null>(null);
   const safety = session.roles.includes("safety officer");
 
   async function reload() {
-    const [obligationBody, wasteBody, spillBody, materialBody, mishapBody, trainingBody, fireBody] = await Promise.all([
+    const [obligationBody, wasteBody, spillBody, materialBody, mishapBody, trainingBody, fireBody, auditBody] = await Promise.all([
       api.obligations(session.token),
       api.wasteStreams(session.token),
       api.spills(session.token),
@@ -54,6 +59,7 @@ export function EnvironmentalLists({
       api.mishaps(session.token),
       api.training(session.token),
       api.wildlandFires(session.token),
+      api.audits(session.token),
     ]);
     setObligations(obligationBody.obligations);
     setWastes(wasteBody.wasteStreams);
@@ -65,6 +71,8 @@ export function EnvironmentalLists({
     setSessions(trainingBody.sessions);
     setFires(fireBody.fires);
     setFireNotice(fireBody.notice);
+    setAudits(auditBody.audits);
+    setAuditNotice(auditBody.notice);
   }
 
   useEffect(() => {
@@ -78,6 +86,17 @@ export function EnvironmentalLists({
         Environmental duties, mishaps, training, spill cleanup, and wildland fire sit on the same finding path. A class, an OSHA rate, a diagnosis, and an ignition plan are not stored.
       </p>
       {error ? <p className="mb-3 text-sm text-red-800">{error}</p> : null}
+      <p className="mb-2 text-sm text-stone-600">{auditNotice}</p>
+      <RecordList
+        title="Program audits"
+        items={audits.map((item) => ({
+          id: item.id,
+          label: item.title,
+          detail: `${item.auditedOn}. ${item.met} met, ${item.notMet} not met, ${item.notLookedAt} not looked at.`,
+        }))}
+        selectedId={selected?.kind === "audit" ? selected.id : null}
+        onSelect={(id) => onSelect({ kind: "audit", id })}
+      />
       <RecordList
         title="Obligations"
         items={obligations.map((item) => ({ id: item.id, label: item.title, detail: item.programArea }))}
@@ -207,12 +226,14 @@ export function EnvironmentalDetail({
 }) {
   const [findings, setFindings] = useState<FindingSummary[]>([]);
   const [steps, setSteps] = useState<SpillStep[]>([]);
+  const [auditLines, setAuditLines] = useState<AuditLine[]>([]);
   const [heading, setHeading] = useState("");
   const [body, setBody] = useState("");
   const [error, setError] = useState<string | null>(null);
   const safety = session.roles.includes("safety officer");
 
   async function reload() {
+    setAuditLines([]);
     if (selection.kind === "obligation") {
       const detail = await api.obligation(session.token, selection.id);
       setHeading(detail.obligation.title);
@@ -249,11 +270,19 @@ export function EnvironmentalDetail({
       setBody(`${detail.session.basis} ${detail.session.headcount} people. Due ${detail.session.dueOn}.${detail.session.completedOn ? ` Completed ${detail.session.completedOn}.` : " Not completed."}`);
       setSteps([]);
       setFindings(detail.findings);
+    } else if (selection.kind === "audit") {
+      const detail = await api.audit(session.token, selection.id);
+      setHeading(detail.audit.title);
+      setBody(`${detail.notice} ${detail.audit.auditedOn}. ${detail.audit.met} met, ${detail.audit.notMet} not met, ${detail.audit.notLookedAt} not looked at.`);
+      setAuditLines(detail.lines);
+      setSteps([]);
+      setFindings([]);
     } else {
       const detail = await api.wildlandFire(session.token, selection.id);
       setHeading(`${detail.fire.kind} · ${detail.fire.place}`);
       setBody(`${detail.fire.purpose} ${detail.fire.note} Occurred ${detail.fire.occurredOn}.`);
       setSteps([]);
+      setAuditLines([]);
       setFindings(detail.findings);
     }
   }
@@ -266,7 +295,27 @@ export function EnvironmentalDetail({
     <article className="rounded border border-stone-300 bg-white p-4">
       <h2 className="text-2xl font-semibold">{heading || "Environmental record"}</h2>
       <p className="mt-2">{body}</p>
-      <p className="mt-2 text-sm text-stone-600">A finding from this record uses the same action path as an inspection finding.</p>
+      <p className="mt-2 text-sm text-stone-600">
+        {selection.kind === "audit"
+          ? "A line marked not met is already a finding in those words. The counts are not a score."
+          : "A finding from this record uses the same action path as an inspection finding."}
+      </p>
+      {auditLines.length > 0 ? (
+        <ul className="mt-3 space-y-2">
+          {auditLines.map((line) => (
+            <li key={line.id}>
+              {line.findingId ? (
+                <button className="text-left underline" type="button" onClick={() => onSelectFinding(line.findingId ?? "")}>
+                  {line.text}
+                </button>
+              ) : (
+                <span>{line.text}</span>
+              )}
+              <span className="ml-2 text-sm text-stone-500">{line.result}</span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
       {steps.length > 0 ? (
         <ol className="mt-3 space-y-1 text-sm">
           {steps.map((step) => (
@@ -292,7 +341,7 @@ export function EnvironmentalDetail({
           </li>
         ))}
       </ul>
-      {safety ? (
+      {safety && selection.kind !== "audit" ? (
         <FindingFromEnvironment
           key={`${selection.kind}-${selection.id}`}
           onCreate={(originalText) => {
@@ -628,4 +677,131 @@ function submit(event: FormEvent, action: () => Promise<unknown>, setError: (val
 
 function messageOf(caught: unknown): string {
   return caught instanceof Error ? caught.message : "Something went wrong";
+}
+
+const AUDIT_RESULTS = ["met", "not met", "not looked at"] as const;
+
+export function ProgramAudit({
+  session,
+  onOpenFinding,
+}: {
+  session: Session;
+  onOpenFinding: (id: string) => void;
+}) {
+  const [notice, setNotice] = useState("");
+  const [lines, setLines] = useState<AuditLine[]>([]);
+  const [audits, setAudits] = useState<ProgramAuditSummary[]>([]);
+  const [title, setTitle] = useState("Annual look");
+  const [auditedOn, setAuditedOn] = useState("2026-11-15");
+  const [answers, setAnswers] = useState<Record<string, string>>({});
+  const [openLines, setOpenLines] = useState<AuditLine[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const canRecord = session.roles.includes("safety officer") || session.roles.includes("commander");
+
+  useEffect(() => {
+    Promise.all([api.auditLines(session.token), api.audits(session.token)])
+      .then(([template, held]) => {
+        setNotice(template.notice);
+        setLines(template.lines);
+        setAudits(held.audits);
+        setAnswers(Object.fromEntries(template.lines.map((line) => [line.id, "not looked at"])));
+      })
+      .catch((caught: unknown) => setError(messageOf(caught)));
+  }, [session.token]);
+
+  return (
+    <section className="panel space-y-3">
+      <p className="text-xs font-semibold tracking-wide text-[#8a6a32]">Program audit</p>
+      <h3 className="text-xl font-semibold">Look at the program</h3>
+      <p className="text-sm text-[#5c5348]">{notice}</p>
+      {audits.length > 0 ? (
+        <ul className="space-y-2">
+          {audits.map((audit) => (
+            <li key={audit.id}>
+              <button
+                className="text-left text-sm"
+                type="button"
+                onClick={() => {
+                  api.audit(session.token, audit.id).then((detail) => setOpenLines(detail.lines)).catch((caught: unknown) => setError(messageOf(caught)));
+                }}
+              >
+                <span className="font-medium">{audit.title}</span>
+                <span className="text-[#6d6256]">
+                  {" "}
+                  · {audit.auditedOn}. {audit.met} met, {audit.notMet} not met, {audit.notLookedAt} not looked at.
+                </span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {openLines.length > 0 ? (
+        <ul className="space-y-2">
+          {openLines.map((line) => (
+            <li key={line.id} className="text-sm">
+              {line.findingId ? (
+                <button className="text-left underline" type="button" onClick={() => onOpenFinding(line.findingId ?? "")}>
+                  {line.text}
+                </button>
+              ) : (
+                <span>{line.text}</span>
+              )}
+              <span className="ml-2 text-[#6d6256]">{line.result}</span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {canRecord ? (
+        <form
+          className="space-y-3"
+          onSubmit={(event) => {
+            event.preventDefault();
+            setError(null);
+            api
+              .createAudit(
+                session.token,
+                title,
+                auditedOn,
+                lines.map((line) => ({ lineId: line.id, result: answers[line.id] ?? "not looked at" })),
+              )
+              .then((created) => {
+                setAudits((current) => [created.audit, ...current]);
+                const finding = created.findings[0];
+                if (finding) onOpenFinding(finding.id);
+              })
+              .catch((caught: unknown) => setError(messageOf(caught)));
+          }}
+        >
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field label="Title" value={title} onChange={setTitle} />
+            <Field label="Date" value={auditedOn} onChange={setAuditedOn} />
+          </div>
+          <ul className="space-y-3">
+            {lines.map((line) => (
+              <li key={line.id} className="rounded border border-[#eadfce] bg-[#fffdf8] p-3">
+                <p className="text-xs font-semibold tracking-wide text-[#8a6a32]">{line.objective}</p>
+                <p className="mt-1">{line.text}</p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {AUDIT_RESULTS.map((result) => (
+                    <label key={result} className="text-sm">
+                      <input
+                        className="mr-1"
+                        type="radio"
+                        name={line.id}
+                        checked={(answers[line.id] ?? "not looked at") === result}
+                        onChange={() => setAnswers((current) => ({ ...current, [line.id]: result }))}
+                      />
+                      {result}
+                    </label>
+                  ))}
+                </div>
+              </li>
+            ))}
+          </ul>
+          {error ? <p className="text-sm text-red-800">{error}</p> : null}
+          <button className="btn" type="submit">Save the look</button>
+        </form>
+      ) : null}
+    </section>
+  );
 }

@@ -43,6 +43,9 @@ export function ensureLocations(db: DatabaseSync, passwordHash: string): void {
   ensureOrg(db, "org-dining", "org-camp", "Dining facility");
   ensureOrg(db, "org-harrow", null, "Camp Harrow");
   ensureOrg(db, "org-meridian", null, "Camp Meridian");
+  for (const camp of MORE_CAMPS) {
+    ensureOrg(db, camp.orgId, null, camp.name);
+  }
 
   const crews: Crew[] = [
     { orgId: "org-camp", parentId: null, orgName: "Camp Sentinel", slug: "garrison", place: "Camp Sentinel" },
@@ -50,6 +53,7 @@ export function ensureLocations(db: DatabaseSync, passwordHash: string): void {
     { orgId: "org-dining", parentId: "org-camp", orgName: "Dining facility", slug: "dining", place: "Camp Sentinel" },
     { orgId: "org-harrow", parentId: null, orgName: "Camp Harrow", slug: "harrow", place: "Camp Harrow" },
     { orgId: "org-meridian", parentId: null, orgName: "Camp Meridian", slug: "meridian", place: "Camp Meridian" },
+    ...MORE_CAMPS.map((camp) => ({ orgId: camp.orgId, parentId: null, orgName: camp.name, slug: camp.slug, place: camp.name })),
   ];
   for (const crew of crews) {
     ensureCrew(db, crew, passwordHash);
@@ -103,7 +107,114 @@ export function ensureLocations(db: DatabaseSync, passwordHash: string): void {
   ensurePractice(db, "org-camp", "user-garrison-safety", "CO-INSPECT", "in progress", "Quarterly shop walks are on the calendar.");
   ensurePractice(db, "org-harrow", harrow.safetyId, "CO-HAZARD", "in progress", "Range and water-point hazards are being written down.");
   ensurePractice(db, "org-meridian", meridian.safetyId, "CO-INSPECT", "not started", "Fuel-farm walks have started. The practice note is local.");
+
+  for (const camp of MORE_CAMPS) {
+    const who = ids(camp.slug);
+    for (const item of camp.stories) {
+      ensureStory(db, story(
+        { orgId: camp.orgId, shopName: camp.shop, commanderGrade: "O-5", ...who },
+        item.key,
+        "2026-11-12",
+        item.place,
+        item.finding,
+        item.hazard,
+        item.initial,
+        item.residual,
+        [item.action, `${camp.shop} supervisor`, item.how],
+        "one month or less",
+        item.action,
+        item.dueOn,
+        item.depth,
+        item.program,
+      ));
+    }
+  }
 }
+
+const MORE_CAMPS: Array<{
+  slug: string;
+  orgId: string;
+  name: string;
+  shop: string;
+  stories: Array<{
+    key: string;
+    place: string;
+    finding: string;
+    hazard: string;
+    initial: [ProbabilityCode, SeverityCode];
+    residual: [ProbabilityCode, SeverityCode];
+    action: string;
+    how: string;
+    dueOn: string;
+    depth: Depth;
+    program?: string;
+  }>;
+}> = [
+  {
+    slug: "redwood", orgId: "org-redwood", name: "Camp Redwood", shop: "Forestry crew",
+    stories: [
+      { key: "break", place: "East fuel break.", finding: "The east fuel break has grown back across the fire road.", hazard: "Fuel on the fire road.", initial: ["C", "II"], residual: ["D", "III"], action: "Cut the fuel break back to the road edge.", how: "Use the crew already scheduled for the boundary.", dueOn: "2026-11-20", depth: "open", program: "natural resources" },
+      { key: "smoke", place: "Burn unit 2.", finding: "The last prescribed burn has no post-burn note.", hazard: "Burn unit without a post-burn note.", initial: ["D", "III"], residual: ["E", "III"], action: "Write the post-burn note.", how: "The note stays with the wildland fire record.", dueOn: "2026-11-18", depth: "decision", program: "natural resources" },
+      { key: "saw", place: "Tool trailer.", finding: "A chain saw in the tool trailer has no chain brake.", hazard: "Saw without a chain brake.", initial: ["C", "II"], residual: ["D", "II"], action: "Take the saw out of service.", how: "Tag it and lock it in the trailer.", dueOn: "2026-11-01", depth: "hazard" },
+    ],
+  },
+  {
+    slug: "calder", orgId: "org-calder", name: "Camp Calder", shop: "Railhead",
+    stories: [
+      { key: "chock", place: "Spur 2.", finding: "A loaded flatcar on spur 2 has no chock.", hazard: "Unchocked flatcar.", initial: ["C", "II"], residual: ["D", "III"], action: "Chock the flatcar.", how: "Use the chocks at the rail shed.", dueOn: "2026-11-14", depth: "open" },
+      { key: "light", place: "Night loading.", finding: "The spur 1 mast light is out.", hazard: "Dark loading spur.", initial: ["C", "III"], residual: ["E", "III"], action: "Restore the mast light.", how: "The spare lamp is in the rail shed.", dueOn: "2026-11-22", depth: "control" },
+      { key: "walk", place: "Walkway.", finding: "The railhead walkway plate rocks underfoot.", hazard: "Loose walkway plate.", initial: ["D", "III"], residual: ["E", "IV"], action: "Fasten the walkway plate.", how: "Bolt it before the next night load.", dueOn: "2026-11-08", depth: "closed" },
+    ],
+  },
+  {
+    slug: "briar", orgId: "org-briar", name: "Camp Briar", shop: "Flight line",
+    stories: [
+      { key: "fod", place: "Taxiway A.", finding: "Loose hardware was left on taxiway A after a tire change.", hazard: "Hardware on the taxiway.", initial: ["C", "II"], residual: ["D", "II"], action: "Sweep the taxiway and account for the hardware.", how: "A second person walks the area.", dueOn: "2026-11-13", depth: "open" },
+      { key: "vest", place: "Parking spot 4.", finding: "Two people on spot 4 were inside the circle without a vest.", hazard: "Unmarked people on the spot.", initial: ["C", "III"], residual: ["E", "III"], action: "Issue vests before anyone enters the circle.", how: "Vests hang at the line shack.", dueOn: "2026-11-16", depth: "decision" },
+      { key: "tow", place: "Tow bar.", finding: "The tow bar shear pin is bent.", hazard: "Bent shear pin.", initial: ["D", "III"], residual: ["E", "III"], action: "Replace the shear pin.", how: "Use the pin from the line shack.", dueOn: "2026-11-19", depth: "initial" },
+    ],
+  },
+  {
+    slug: "holt", orgId: "org-holt", name: "Camp Holt", shop: "Engineer maintenance",
+    stories: [
+      { key: "trench", place: "Shop yard.", finding: "An open trench beside the shop yard has no barrier.", hazard: "Unbarriered trench.", initial: ["C", "II"], residual: ["D", "III"], action: "Set a barrier and mark the trench.", how: "Use the barricades by the yard gate.", dueOn: "2026-11-01", depth: "open" },
+      { key: "blade", place: "Grader.", finding: "The grader backup alarm does not sound.", hazard: "Grader without a backup alarm.", initial: ["C", "II"], residual: ["D", "II"], action: "Dead-line the grader until the alarm works.", how: "The key stays with the supervisor.", dueOn: "2026-11-15", depth: "control" },
+      { key: "ext", place: "Fuel bowser.", finding: "The bowser extinguisher tag is blank for this month.", hazard: "Unchecked bowser extinguisher.", initial: ["D", "III"], residual: ["E", "IV"], action: "Check the extinguisher and mark the tag.", how: "On the first workday of the month.", dueOn: "2026-11-06", depth: "closed" },
+    ],
+  },
+  {
+    slug: "sable", orgId: "org-sable", name: "Camp Sable", shop: "Water plant",
+    stories: [
+      { key: "residual", place: "Clearwell.", finding: "This morning's chlorine residual was not written down.", hazard: "Missing chlorine residual.", initial: ["C", "III"], residual: ["D", "III"], action: "Write the residual each morning the plant runs.", how: "The log is on the clearwell clipboard.", dueOn: "2026-11-12", depth: "decision", program: "water" },
+      { key: "ladder", place: "Filter gallery.", finding: "The filter-gallery ladder is missing a rung.", hazard: "Ladder missing a rung.", initial: ["C", "II"], residual: ["D", "III"], action: "Take the ladder out of use.", how: "Tag it and bring a sound ladder from supply.", dueOn: "2026-11-01", depth: "open", program: "water" },
+      { key: "valve", place: "Backwash.", finding: "The backwash valve weeps at the packing.", hazard: "Weeping backwash valve.", initial: ["D", "III"], residual: ["E", "III"], action: "Repack the valve.", how: "After the filter is offline.", dueOn: "2026-11-21", depth: "hazard", program: "water" },
+    ],
+  },
+  {
+    slug: "quill", orgId: "org-quill", name: "Camp Quill", shop: "Central issue",
+    stories: [
+      { key: "stack", place: "Cage 3.", finding: "Crates in cage 3 are stacked above the marked line.", hazard: "Overstacked crates.", initial: ["C", "III"], residual: ["D", "III"], action: "Lower the stack to the marked line.", how: "Before the next issue window.", dueOn: "2026-11-14", depth: "open" },
+      { key: "exit", place: "South exit.", finding: "The south exit is blocked by returned duffel bags.", hazard: "Blocked exit.", initial: ["C", "II"], residual: ["E", "III"], action: "Clear the south exit.", how: "Move the bags to the holding lane.", dueOn: "2026-11-11", depth: "completed" },
+      { key: "drum", place: "Flammable locker.", finding: "A solvent drum in the flammable locker has no contents mark.", hazard: "Unmarked solvent drum.", initial: ["D", "III"], residual: ["E", "III"], action: "Mark the drum from the inventory.", how: "The sheet is posted on the locker.", dueOn: "2026-11-18", depth: "control", program: "materials" },
+    ],
+  },
+  {
+    slug: "ives", orgId: "org-ives", name: "Camp Ives", shop: "Range operations",
+    stories: [
+      { key: "medic", place: "Range 4.", finding: "Range 4 went hot without a medic on the range card.", hazard: "Range hot without a medic recorded.", initial: ["C", "II"], residual: ["D", "II"], action: "Record the medic before the range goes hot.", how: "The name goes on the range card.", dueOn: "2026-11-01", depth: "open" },
+      { key: "flag", place: "Range road gate.", finding: "The red range flag was still down while the line was hot.", hazard: "Range flag not flying.", initial: ["C", "II"], residual: ["E", "II"], action: "Raise the flag before the first shot.", how: "The flag stays at the gate.", dueOn: "2026-11-09", depth: "decision" },
+      { key: "water", place: "Range 1.", finding: "The range 1 water cans were empty at midday.", hazard: "Empty water cans.", initial: ["D", "III"], residual: ["E", "III"], action: "Fill the cans before the range opens.", how: "Fill them at the camp water point.", dueOn: "2026-11-16", depth: "initial", program: "water" },
+    ],
+  },
+  {
+    slug: "dorn", orgId: "org-dorn", name: "Camp Dorn", shop: "Troop construction",
+    stories: [
+      { key: "edge", place: "Barracks pad.", finding: "The second-floor edge has no guard while the slab is open.", hazard: "Open edge without a guard.", initial: ["C", "I"], residual: ["D", "II"], action: "Guard the open edge before anyone works the pad.", how: "Use the rails staged at the pad.", dueOn: "2026-11-01", depth: "open" },
+      { key: "lead", place: "Paint shop.", finding: "A lead-paint chip was found on the sill and not bagged.", hazard: "Loose paint chip.", initial: ["C", "III"], residual: ["D", "III"], action: "Bag the chip and keep people off the sill.", how: "The bag goes to the waste holding area.", dueOn: "2026-11-17", depth: "control", program: "cleanup" },
+      { key: "harness", place: "Roof work.", finding: "A harness on the roof line has a cut lanyard.", hazard: "Cut lanyard.", initial: ["C", "II"], residual: ["E", "II"], action: "Remove the harness from service.", how: "Tag it and send it to supply.", dueOn: "2026-11-08", depth: "closed" },
+    ],
+  },
+];
 
 function ids(slug: string) {
   return {
@@ -216,22 +327,22 @@ function ensureCrew(db: DatabaseSync, crew: Crew, passwordHash: string): void {
 
 function safetyEmail(crew: Crew): string {
   if (crew.place === "Camp Sentinel") return `${crew.slug}.safety@camp-sentinel.example`;
-  return `safety@${crew.slug === "harrow" ? "camp-harrow" : "camp-meridian"}.example`;
+  return `safety@camp-${crew.slug}.example`;
 }
 
 function commanderEmail(crew: Crew): string {
   if (crew.place === "Camp Sentinel") return `${crew.slug}.commander@camp-sentinel.example`;
-  return `commander@${crew.slug === "harrow" ? "camp-harrow" : "camp-meridian"}.example`;
+  return `commander@camp-${crew.slug}.example`;
 }
 
 function supervisorEmail(crew: Crew): string {
   if (crew.place === "Camp Sentinel") return `${crew.slug}.supervisor@camp-sentinel.example`;
-  return `supervisor@${crew.slug === "harrow" ? "camp-harrow" : "camp-meridian"}.example`;
+  return `supervisor@camp-${crew.slug}.example`;
 }
 
 function employeeEmail(crew: Crew): string {
   if (crew.place === "Camp Sentinel") return `${crew.slug}.employee@camp-sentinel.example`;
-  return `employee@${crew.slug === "harrow" ? "camp-harrow" : "camp-meridian"}.example`;
+  return `employee@camp-${crew.slug}.example`;
 }
 
 function ensureStory(db: DatabaseSync, item: Story): void {

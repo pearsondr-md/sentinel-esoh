@@ -9,12 +9,23 @@ import {
   type Session,
   type WorkFinding,
 } from "./api.ts";
-import { EnvironmentalDetail, EnvironmentalLists, type EnvironmentalSelection } from "./Environmental.tsx";
+import { EnvironmentalDetail, EnvironmentalLists, ProgramAudit, type EnvironmentalSelection } from "./Environmental.tsx";
 import { ExposureDetail, ExposureLists } from "./OccupationalHealth.tsx";
 import { AskView } from "./Ask.tsx";
 import { AsohmsView } from "./Asohms.tsx";
 import { CouncilView } from "./Council.tsx";
 import { Bars, Flow } from "./Charts.tsx";
+
+const EXTRA_CAMPS = ["Redwood", "Calder", "Briar", "Holt", "Sable", "Quill", "Ives", "Dorn"] as const;
+
+function campAccounts(name: string) {
+  const slug = name.toLowerCase().replace("camp ", "");
+  return (["Safety officer", "Commander", "Supervisor", "Employee"] as const).map((role) => [
+    role,
+    `${role.split(" ")[0].toLowerCase()}@camp-${slug}.example`,
+    `${name} ${role === "Safety officer" ? "Safety Officer" : role}`,
+  ] as const);
+}
 
 const PLACES = [
   {
@@ -29,24 +40,10 @@ const PLACES = [
       ["Dining facility", "dining.safety@camp-sentinel.example", "Dining facility Safety Officer"],
     ],
   },
-  {
-    name: "Camp Harrow",
-    accounts: [
-      ["Safety officer", "safety@camp-harrow.example", "Camp Harrow Safety Officer"],
-      ["Commander", "commander@camp-harrow.example", "Camp Harrow Commander"],
-      ["Supervisor", "supervisor@camp-harrow.example", "Camp Harrow Supervisor"],
-      ["Employee", "employee@camp-harrow.example", "Camp Harrow Employee"],
-    ],
-  },
-  {
-    name: "Camp Meridian",
-    accounts: [
-      ["Safety officer", "safety@camp-meridian.example", "Camp Meridian Safety Officer"],
-      ["Commander", "commander@camp-meridian.example", "Camp Meridian Commander"],
-      ["Supervisor", "supervisor@camp-meridian.example", "Camp Meridian Supervisor"],
-      ["Employee", "employee@camp-meridian.example", "Camp Meridian Employee"],
-    ],
-  },
+  ...["Camp Harrow", "Camp Meridian", ...EXTRA_CAMPS.map((name) => `Camp ${name}`)].map((name) => ({
+    name,
+    accounts: campAccounts(name),
+  })),
 ] as const;
 
 const PROBABILITY = [
@@ -68,7 +65,7 @@ const sessionKey = "sentinel.session";
 const findingKey = "sentinel.finding";
 
 const STEP_LABELS = ["Identify", "Assess", "Decide", "Assign", "Verify", "Close"] as const;
-const STEP_WHO = ["Safety officer", "Safety officer", "Commander", "Safety officer", "Supervisor", "Safety officer"] as const;
+const STEP_WHO = ["Safety officer", "Safety officer or commander", "Commander", "Safety officer", "Supervisor", "Safety officer"] as const;
 
 function Logo() {
   return (
@@ -491,29 +488,39 @@ function Home({
       <section className="panel">
         <h2 className="text-2xl font-semibold">{session.displayName}</h2>
         <p className="mt-2 max-w-2xl text-[#5c5348]">
-          These records belong to this location. Choose another camp or shop in the header to see that place's work. A count across camps is not a score.
+          Start with the task. The charts are the same records, counted. A count across camps is not a score.
         </p>
-        {work.overdue.length > 0 ? (
-          <div className="mt-4">
-            <h3 className="font-semibold">Past due</h3>
-            <ul className="mt-2 space-y-2">
-              {work.overdue.map((action) => (
-                <li key={action.id}>
-                  <button className="text-left" type="button" onClick={() => onOpenFinding(action.findingId)}>
-                    <span className="font-medium">{action.description}</span>
-                    <span className="mt-1 block text-sm text-[#6d6256]">Due {action.dueOn}. Open the finding.</span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </div>
-        ) : null}
+        <div className="mt-4 space-y-2">
+          <h3 className="font-semibold">Your tasks</h3>
+          {work.overdue.map((action) => (
+            <button key={action.id} className="task" type="button" onClick={() => onOpenFinding(action.findingId)}>
+              <span className="text-xs font-semibold tracking-wide text-[#8a6a32]">Past due · {action.dueOn}</span>
+              <span className="mt-1 block font-medium">{action.description}</span>
+              <span className="mt-1 block text-sm text-[#6d6256]">Open the finding.</span>
+            </button>
+          ))}
+          {lanes
+            .filter((lane) => lane.active)
+            .flatMap((lane) => lane.findings)
+            .filter((finding) => !work.overdue.some((action) => action.findingId === finding.id))
+            .slice(0, 4)
+            .map((finding) => (
+              <button key={finding.id} className="task" type="button" onClick={() => onOpenFinding(finding.id)}>
+                <span className="text-xs font-semibold tracking-wide text-[#8a6a32]">{stepTitle(finding.step)}</span>
+                <span className="mt-1 block font-medium">{finding.originalText}</span>
+                <span className="mt-1 block text-sm text-[#6d6256]">Open this step.</span>
+              </button>
+            ))}
+          {work.overdue.length === 0 && lanes.filter((lane) => lane.active).every((lane) => lane.findings.length === 0) ? (
+            <p className="text-sm text-[#6d6256]">Nothing is waiting on this account.</p>
+          ) : null}
+        </div>
         <div className="mt-5 overflow-x-auto">
           <Flow
             onSelect={setWindowKey}
             steps={[
               { key: "identify", label: "Identify", who: "Safety officer", value: identify.length },
-              { key: "assess", label: "Assess", who: "Safety officer", value: count("assess") },
+              { key: "assess", label: "Assess", who: "Safety officer or commander", value: count("assess") },
               { key: "decide", label: "Decide", who: "Commander", value: count("decide") },
               { key: "assign", label: "Assign", who: "Safety officer", value: count("assign") },
               { key: "verify", label: "Verify", who: "Supervisor", value: count("verify") },
@@ -522,6 +529,9 @@ function Home({
           />
         </div>
       </section>
+      {session.roles.includes("safety officer") || session.roles.includes("commander") ? (
+        <ProgramAudit session={session} onOpenFinding={onOpenFinding} />
+      ) : null}
       <div className="grid gap-4 lg:grid-cols-2">
         <section className="panel">
           <h3 className="font-semibold">Findings by step</h3>
@@ -553,9 +563,12 @@ function Home({
           <p className="mt-3 text-sm text-[#6d6256]">{reports.length} report{reports.length === 1 ? "" : "s"} on the shared log.</p>
         </section>
       </div>
-      <SiteCounts findings={work.findings} onOpen={(key) => setWindowKey(key)} />
-      {session.roles.includes("safety officer") || session.roles.includes("commander") ? <CampCounts token={session.token} /> : null}
       {safety ? <ChecklistWalk token={session.token} onOpenFinding={onOpenFinding} onCreated={onCreated} /> : null}
+      <SiteCounts findings={work.findings} onOpen={(key) => setWindowKey(key)} />
+      {session.roles.includes("safety officer") || session.roles.includes("commander") ? (
+        <ResidualLevels findings={work.findings} onOpen={(key) => setWindowKey(key)} />
+      ) : null}
+      {session.roles.includes("safety officer") || session.roles.includes("commander") ? <CampCounts token={session.token} /> : null}
       <div className="grid gap-4 lg:grid-cols-2">
         {lanes.map((lane) => (
           <section key={lane.role} className={`panel ${lane.active ? "ring-2 ring-[#e4c27a]" : ""}`}>
@@ -624,6 +637,21 @@ function overviewWindow(
   identify: Inspection[],
   reports: EmployeeReport[],
 ): { title: string; note: string; rows: Array<{ id: string; kind: "inspection" | "finding" | "report"; label: string; meta: string }> } | null {
+  if (key.startsWith("risk:")) {
+    const level = key.slice("risk:".length);
+    return {
+      title: `Residual risk · ${level}`,
+      note: "These findings already have this matrix word on the residual estimate. The word is not a score.",
+      rows: work.findings
+        .filter((finding) => finding.residualLevel === level)
+        .map((finding) => ({
+          id: finding.id,
+          kind: "finding" as const,
+          label: finding.originalText,
+          meta: finding.organizationName ?? stepTitle(finding.step),
+        })),
+    };
+  }
   if (key.startsWith("site:")) {
     const name = key.slice("site:".length);
     return {
@@ -680,6 +708,27 @@ function overviewWindow(
       meta: stepTitle(finding.step),
     })),
   };
+}
+
+function ResidualLevels({ findings, onOpen }: { findings: WorkFinding[]; onOpen: (key: string) => void }) {
+  const levels = ["extremely high", "high", "medium", "low"];
+  const items = levels.map((level) => ({
+    key: `risk:${level}`,
+    label: level,
+    value: findings.filter((finding) => finding.residualLevel === level).length,
+  }));
+  if (items.every((item) => item.value === 0)) return null;
+  return (
+    <section className="panel">
+      <h3 className="font-semibold">Residual risk already recorded</h3>
+      <p className="mt-1 text-sm text-[#6d6256]">
+        Each bar is a matrix word already stored on a residual estimate. The count is not a score and it does not accept the risk.
+      </p>
+      <div className="mt-4">
+        <Bars onSelect={onOpen} items={items} />
+      </div>
+    </section>
+  );
 }
 
 function SiteCounts({ findings, onOpen }: { findings: WorkFinding[]; onOpen: (key: string) => void }) {
@@ -968,6 +1017,11 @@ function FindingRecord({ session, findingId, onBack }: { session: Session; findi
           );
         })}
       </ol>
+      <section className="panel">
+        <p className="text-xs font-semibold tracking-wide text-[#8a6a32]">Now</p>
+        <h2 className="mt-1 text-xl font-semibold">{step === "done" ? "Closed" : stepLabel(step)}</h2>
+        <p className="mt-1 text-sm text-[#5c5348]">{stepGuide(step)}</p>
+      </section>
       <article className="panel">
         <h3 className="font-semibold">Identify</h3>
         <p className="mt-2">{chain.finding.originalText}</p>
@@ -975,9 +1029,9 @@ function FindingRecord({ session, findingId, onBack }: { session: Session; findi
       </article>
 
       <article className="panel">
-        <h3 className="font-semibold">Assess · safety officer</h3>
+        <h3 className="font-semibold">Assess · safety officer or commander</h3>
         {hazard ? <p className="mt-2">Hazard: {hazard.description}</p> : <p className="mt-2 text-[#6d6256]">Name the hazard.</p>}
-        {step === "assess" && safety && !hazard ? (
+        {step === "assess" && (safety || commander) && !hazard ? (
           <HazardForm
             token={session.token}
             findingId={findingId}
@@ -989,7 +1043,7 @@ function FindingRecord({ session, findingId, onBack }: { session: Session; findi
       <AssessmentBlock
         title="Initial risk"
         assessment={initial}
-        canEstimate={step === "assess" && safety && Boolean(hazard) && !initial}
+        canEstimate={step === "assess" && (safety || commander) && Boolean(hazard) && !initial}
         onEstimate={async (probabilityCode, severityCode) => {
           if (!hazard) return;
           await api.addAssessment(session.token, hazard.id, "initial", probabilityCode, severityCode);
@@ -999,7 +1053,7 @@ function FindingRecord({ session, findingId, onBack }: { session: Session; findi
       <AssessmentBlock
         title="Residual risk"
         assessment={residual}
-        canEstimate={step === "assess" && safety && Boolean(initial) && !residual}
+        canEstimate={step === "assess" && (safety || commander) && Boolean(initial) && !residual}
         onEstimate={async (probabilityCode, severityCode) => {
           if (!hazard) return;
           await api.addAssessment(session.token, hazard.id, "residual", probabilityCode, severityCode);
@@ -1175,6 +1229,15 @@ function chainStep(chain: FindingChain): WorkFinding["step"] {
   if (action.status === "open" || !passed) return "verify";
   if (action.status !== "closed") return "close";
   return "done";
+}
+
+function stepGuide(step: WorkFinding["step"]): string {
+  if (step === "assess") return "The safety officer or the commander names the hazard, then the probability and severity. The level comes back from the table.";
+  if (step === "decide") return "The commander accepts or rejects the residual risk. The matrix cell stays as looked up.";
+  if (step === "assign") return "Assign the action. A blocked authority check does not stop the assignment.";
+  if (step === "verify") return "The person who finished the work cannot be the person who verifies it.";
+  if (step === "close") return "Close the action. The original words stay on the finding.";
+  return "This finding is closed. The record stays readable.";
 }
 
 function stepLabel(step: WorkFinding["step"]): (typeof STEP_LABELS)[number] {
