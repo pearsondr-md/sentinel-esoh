@@ -73,6 +73,35 @@ export type Spill = {
   reportedTo: string;
 };
 
+export type SpillStep = { id: string; step: string; note: string };
+
+export type Mishap = {
+  id: string;
+  occurredOn: string;
+  narrative: string;
+  personnelCategory: string;
+  outcome: string;
+};
+
+export type TrainingSession = {
+  id: string;
+  topic: string;
+  audience: string;
+  dueOn: string;
+  completedOn: string | null;
+  headcount: number;
+  basis: string;
+};
+
+export type WildlandFire = {
+  id: string;
+  kind: string;
+  place: string;
+  occurredOn: string;
+  purpose: string;
+  note: string;
+};
+
 export type AsohmsObjective = {
   code: string;
   regulationLetter: string;
@@ -128,6 +157,9 @@ export type CouncilReport = {
   obligations: number;
   wasteStreams: number;
   spills: number;
+  mishaps: number;
+  training: number;
+  wildlandFires: number;
   records: {
     findings: CouncilRecord[];
     actions: CouncilRecord[];
@@ -135,6 +167,9 @@ export type CouncilReport = {
     obligations: CouncilRecord[];
     wasteStreams: CouncilRecord[];
     spills: CouncilRecord[];
+    mishaps: CouncilRecord[];
+    training: CouncilRecord[];
+    wildlandFires: CouncilRecord[];
     exposureGroups: CouncilRecord[];
   };
   notStored: Array<{ item: string; reason: string }>;
@@ -350,7 +385,30 @@ export const api = {
   addFindingFromWaste: (token: string, wasteStreamId: string, originalText: string) =>
     request<FindingSummary>(`/waste-streams/${wasteStreamId}/findings`, token, "POST", { originalText }),
   spills: (token: string) => request<{ spills: Spill[] }>("/spills", token),
-  spill: (token: string, id: string) => request<{ spill: Spill; findings: FindingSummary[] }>(`/spills/${id}`, token),
+  spill: (token: string, id: string) => request<{ spill: Spill; steps: SpillStep[]; findings: FindingSummary[] }>(`/spills/${id}`, token),
+  addSpillStep: (token: string, spillId: string, step: string, note: string) =>
+    request<SpillStep>(`/spills/${spillId}/steps`, token, "POST", { step, note }),
+  mishaps: (token: string) => request<{ notice: string; mishaps: Mishap[] }>("/mishaps", token),
+  mishap: (token: string, id: string) =>
+    request<{ notice: string; clock: string | null; mishap: Mishap; findings: FindingSummary[] }>(`/mishaps/${id}`, token),
+  createMishap: (token: string, occurredOn: string, narrative: string, personnelCategory: string, outcome: string) =>
+    request<{ mishap: Mishap }>("/mishaps", token, "POST", { occurredOn, narrative, personnelCategory, outcome }),
+  addFindingFromMishap: (token: string, mishapId: string, originalText: string) =>
+    request<FindingSummary>(`/mishaps/${mishapId}/findings`, token, "POST", { originalText }),
+  training: (token: string) => request<{ sessions: TrainingSession[] }>("/training", token),
+  trainingSession: (token: string, id: string) =>
+    request<{ session: TrainingSession; findings: FindingSummary[] }>(`/training/${id}`, token),
+  createTraining: (token: string, topic: string, audience: string, dueOn: string, headcount: number, completedOn: string | null) =>
+    request<TrainingSession>("/training", token, "POST", { topic, audience, dueOn, headcount, completedOn }),
+  addFindingFromTraining: (token: string, trainingId: string, originalText: string) =>
+    request<FindingSummary>(`/training/${trainingId}/findings`, token, "POST", { originalText }),
+  wildlandFires: (token: string) => request<{ notice: string; fires: WildlandFire[] }>("/wildland-fires", token),
+  wildlandFire: (token: string, id: string) =>
+    request<{ fire: WildlandFire; findings: FindingSummary[] }>(`/wildland-fires/${id}`, token),
+  createWildlandFire: (token: string, kind: string, place: string, occurredOn: string, purpose: string, note: string) =>
+    request<WildlandFire>("/wildland-fires", token, "POST", { kind, place, occurredOn, purpose, note }),
+  addFindingFromFire: (token: string, fireId: string, originalText: string) =>
+    request<FindingSummary>(`/wildland-fires/${fireId}/findings`, token, "POST", { originalText }),
   createSpill: (token: string, description: string, reportedTo: string) =>
     request<Spill>("/spills", token, "POST", { description, reportedTo }),
   addFindingFromSpill: (token: string, spillId: string, originalText: string) =>

@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { DatabaseSync } from "node:sqlite";
 import { ACCEPTANCE_CELLS, MATRIX_CELLS } from "./doctrine.ts";
 import { hashPassword } from "./passwords.ts";
+import { ensureArmyRecords } from "./army.ts";
 import { ensureLocations } from "./locations.ts";
 import { SOURCE_CARDS } from "./sources.ts";
 
@@ -261,6 +262,70 @@ CREATE TABLE IF NOT EXISTS spill_finding (
   PRIMARY KEY (spill_id, finding_id)
 );
 
+CREATE TABLE IF NOT EXISTS spill_response (
+  id TEXT PRIMARY KEY,
+  organization_id TEXT NOT NULL REFERENCES organization(id),
+  spill_id TEXT NOT NULL REFERENCES spill(id),
+  step TEXT NOT NULL,
+  note TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  created_by TEXT NOT NULL,
+  UNIQUE (spill_id, step)
+);
+
+CREATE TABLE IF NOT EXISTS mishap (
+  id TEXT PRIMARY KEY,
+  organization_id TEXT NOT NULL REFERENCES organization(id),
+  occurred_on TEXT NOT NULL,
+  narrative TEXT NOT NULL,
+  personnel_category TEXT NOT NULL,
+  outcome TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  created_by TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS mishap_finding (
+  mishap_id TEXT NOT NULL REFERENCES mishap(id),
+  finding_id TEXT NOT NULL REFERENCES finding(id),
+  PRIMARY KEY (mishap_id, finding_id)
+);
+
+CREATE TABLE IF NOT EXISTS training_session (
+  id TEXT PRIMARY KEY,
+  organization_id TEXT NOT NULL REFERENCES organization(id),
+  topic TEXT NOT NULL,
+  audience TEXT NOT NULL,
+  due_on TEXT NOT NULL,
+  completed_on TEXT,
+  headcount INTEGER NOT NULL,
+  created_at TEXT NOT NULL,
+  created_by TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS training_finding (
+  training_id TEXT NOT NULL REFERENCES training_session(id),
+  finding_id TEXT NOT NULL REFERENCES finding(id),
+  PRIMARY KEY (training_id, finding_id)
+);
+
+CREATE TABLE IF NOT EXISTS wildland_fire (
+  id TEXT PRIMARY KEY,
+  organization_id TEXT NOT NULL REFERENCES organization(id),
+  kind TEXT NOT NULL,
+  place TEXT NOT NULL,
+  occurred_on TEXT NOT NULL,
+  purpose TEXT NOT NULL,
+  note TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  created_by TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS wildland_fire_finding (
+  wildland_fire_id TEXT NOT NULL REFERENCES wildland_fire(id),
+  finding_id TEXT NOT NULL REFERENCES finding(id),
+  PRIMARY KEY (wildland_fire_id, finding_id)
+);
+
 CREATE TABLE IF NOT EXISTS exposure_group (
   id TEXT PRIMARY KEY,
   organization_id TEXT NOT NULL REFERENCES organization(id),
@@ -377,6 +442,7 @@ export function openDatabase(dbPath: string): DatabaseSync {
   ensureAsohms(db);
   ensureSources(db);
   ensureLocations(db, hashPassword(DEMO_PASSWORD));
+  ensureArmyRecords(db);
   return db;
 }
 

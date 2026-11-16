@@ -276,7 +276,7 @@ function Workspace({ session }: { session: Session }) {
             ["council", "Council"],
             ["asohms", "Practice notes"],
             ["ask", "Ask"],
-            ["environment", "Environment"],
+            ["environment", "Programs"],
             ["exposure", "Health"],
             ["reports", "Reports"],
           ] as const
@@ -332,7 +332,7 @@ function Workspace({ session }: { session: Session }) {
           {environmental ? (
             <EnvironmentalDetail session={session} selection={environmental} onSelectFinding={openFinding} />
           ) : (
-            <p className="text-sm text-[#6d6256]">No environmental record is open. Add an obligation, a waste stream, or a spill, then open a finding from it.</p>
+            <p className="text-sm text-[#6d6256]">Open a record to see the words behind it. A finding from that record uses the same chain as an inspection.</p>
           )}
         </div>
       ) : place === "exposure" ? (

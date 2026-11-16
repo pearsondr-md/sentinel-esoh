@@ -423,7 +423,9 @@ describe("Shop 2 workflow", () => {
     );
     const absent = (council.notStored as Array<{ item: string }>).map((item) => item.item);
     assert.ok(absent.includes("OSHA rates"));
-    assert.ok(absent.includes("Mishap summaries"));
+    assert.ok(absent.includes("Mishap class"));
+    assert.equal(absent.includes("Mishap summaries"), false);
+    assert.equal(absent.includes("Training completion"), false);
     assert.ok(absent.includes("ASOHMS implementation status"));
 
     const other = await api(otherUnit, "GET", "/council");
@@ -431,6 +433,77 @@ describe("Shop 2 workflow", () => {
       (other.overdueActions as Array<{ id: string }>).some((action) => action.id === late.id),
       false,
     );
+  });
+
+  it("records a mishap, training, spill cleanup, and wildland fire without a class or a rate", async () => {
+    const safety = await login("shop2.safety@camp-sentinel.example");
+    const otherUnit = await login("unit2.safety@camp-sentinel.example");
+    const harrow = await login("safety@camp-harrow.example");
+    const meridian = await login("safety@camp-meridian.example");
+    await api(safety, "POST", "/mishaps", {
+      occurredOn: "2026-11-15",
+      narrative: "A Soldier reported an injury.",
+      personnelCategory: "Soldier",
+      outcome: "injury reported",
+      diagnosis: "fracture",
+    }, 400);
+    await api(safety, "POST", "/mishaps", {
+      occurredOn: "2026-11-15",
+      narrative: "A Soldier reported an injury.",
+      personnelCategory: "Soldier",
+      outcome: "injury reported",
+      class: "A",
+    }, 400);
+    const mishap = await api(safety, "POST", "/mishaps", {
+      occurredOn: "2026-11-15",
+      narrative: "A Soldier reported an injury at the lift.",
+      personnelCategory: "Soldier",
+      outcome: "injury reported",
+    });
+    assert.equal("class" in (mishap.mishap as Record<string, unknown>), false);
+    assert.equal(String(mishap.notice).includes("does not compute a rate"), true);
+    await api(otherUnit, "GET", `/mishaps/${(mishap.mishap as { id: string }).id}`, undefined, 404);
+    const columns = db.prepare("PRAGMA table_info(mishap)").all() as Array<{ name: string }>;
+    assert.equal(columns.some((column) => column.name === "class"), false);
+
+    const spill = await api(safety, "POST", "/spills", {
+      description: "Brake cleaner reached the pad.",
+      reportedTo: "Camp Sentinel garrison on-scene coordinator",
+    });
+    const step = await api(safety, "POST", `/spills/${spill.id}/steps`, { step: "contained", note: "The pad drain was covered." });
+    assert.equal(step.step, "contained");
+    await api(safety, "POST", "/training", {
+      topic: "Spill response",
+      audience: "Shop 2",
+      dueOn: "2026-12-01",
+      headcount: 6,
+      qualified: true,
+    }, 400);
+    const training = await api(safety, "POST", "/training", {
+      topic: "Spill response",
+      audience: "Shop 2",
+      dueOn: "2026-12-01",
+      headcount: 6,
+      completedOn: null,
+    });
+    assert.equal(training.topic, "Spill response");
+    await api(safety, "POST", "/wildland-fires", {
+      kind: "prescribed burn",
+      place: "Shop pad",
+      occurredOn: "2026-11-15",
+      purpose: "Fuel reduction",
+      note: "Not a burn plan.",
+      ignition: "strip",
+    }, 400);
+
+    const harrowFires = await api(harrow, "GET", "/wildland-fires");
+    assert.equal((harrowFires.fires as Array<{ place: string }>).some((fire) => fire.place === "Training area 3"), true);
+    const shopFires = await api(safety, "GET", "/wildland-fires");
+    assert.equal((shopFires.fires as Array<{ place: string }>).some((fire) => fire.place === "Training area 3"), false);
+    const meridianFires = await api(meridian, "GET", "/wildland-fires");
+    assert.equal((meridianFires.fires as Array<{ kind: string }>).some((fire) => fire.kind === "prescribed burn"), true);
+    const comparison = await api(safety, "GET", "/comparison");
+    assert.equal(JSON.stringify(comparison).includes("A Soldier reported an injury at the lift."), false);
   });
 
   it("stores an exposure group as counts and rejects a diagnosis", async () => {

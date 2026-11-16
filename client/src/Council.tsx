@@ -149,6 +149,9 @@ export function CouncilView({
                 { key: "obligations", label: "Obligations", value: report.obligations },
                 { key: "wasteStreams", label: "Waste streams", value: report.wasteStreams },
                 { key: "spills", label: "Spills", value: report.spills },
+                { key: "mishaps", label: "Mishaps", value: report.mishaps },
+                { key: "training", label: "Training", value: report.training },
+                { key: "wildlandFires", label: "Wildland fire", value: report.wildlandFires },
                 { key: "exposureGroups", label: "Exposure groups", value: report.exposureGroups.groups },
                 { key: "people", label: "People in those groups", value: report.exposureGroups.people },
               ]}
@@ -232,6 +235,15 @@ function drillFor(report: CouncilReport, key: string): { title: string; note: st
   if (key === "spills") {
     return { title: "Spills", note: "A spill record is what was reported, not a mishap class.", kind: "spill", rows: report.records.spills };
   }
+  if (key === "mishaps") {
+    return { title: "Mishaps", note: "A mishap names who was affected and the outcome. It does not assign a class or store a diagnosis.", kind: "mishap", rows: report.records.mishaps };
+  }
+  if (key === "training") {
+    return { title: "Training", note: "A headcount and a due date. It is not a qualification.", kind: "training", rows: report.records.training };
+  }
+  if (key === "wildlandFires") {
+    return { title: "Wildland fire", note: "A wildfire, a prescribed burn, or the work after the fire. An ignition plan is not stored.", kind: "fire", rows: report.records.wildlandFires };
+  }
   if (key === "exposureGroups" || key === "people") {
     const people = report.records.exposureGroups.reduce((sum, row) => sum + (row.headcount ?? 0), 0);
     return {
@@ -260,5 +272,8 @@ function openRow(
   if (kind === "obligation") handlers.onOpenEnvironment({ kind: "obligation", id: row.id });
   if (kind === "waste") handlers.onOpenEnvironment({ kind: "waste", id: row.id });
   if (kind === "spill") handlers.onOpenEnvironment({ kind: "spill", id: row.id });
+  if (kind === "mishap") handlers.onOpenEnvironment({ kind: "mishap", id: row.id });
+  if (kind === "training") handlers.onOpenEnvironment({ kind: "training", id: row.id });
+  if (kind === "fire") handlers.onOpenEnvironment({ kind: "fire", id: row.id });
   if (kind === "exposure") handlers.onOpenExposure(row.id);
 }
