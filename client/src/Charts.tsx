@@ -1,24 +1,53 @@
-export function Bars({ items }: { items: Array<{ label: string; value: number; tone?: string }> }) {
+export function Bars({
+  items,
+  selected,
+  onSelect,
+}: {
+  items: Array<{ key?: string; label: string; value: number; tone?: string }>;
+  selected?: string | null;
+  onSelect?: (key: string) => void;
+}) {
   const max = Math.max(1, ...items.map((item) => item.value));
   return (
     <ul className="space-y-3">
-      {items.map((item) => (
-        <li key={item.label}>
-          <div className="mb-1 flex items-baseline justify-between gap-3 text-sm">
-            <span>{item.label}</span>
-            <span className="font-semibold tabular-nums">{item.value}</span>
-          </div>
-          <div className="h-3 overflow-hidden rounded-full bg-[#efe6d6]" role="img" aria-label={`${item.label}: ${item.value}`}>
-            <div
-              className="h-3 rounded-full"
-              style={{
-                width: `${Math.max(item.value === 0 ? 0 : 6, (item.value / max) * 100)}%`,
-                background: item.tone ?? "#c4a15a",
-              }}
-            />
-          </div>
-        </li>
-      ))}
+      {items.map((item) => {
+        const itemKey = item.key ?? item.label;
+        const open = item.value > 0 && onSelect;
+        const body = (
+          <>
+            <div className="mb-1 flex items-baseline justify-between gap-3 text-sm">
+              <span>{item.label}</span>
+              <span className="font-semibold tabular-nums">{item.value}</span>
+            </div>
+            <div className="h-3 overflow-hidden rounded-full bg-[#efe6d6]" role="img" aria-label={`${item.label}: ${item.value}`}>
+              <div
+                className="h-3 rounded-full"
+                style={{
+                  width: `${Math.max(item.value === 0 ? 0 : 6, (item.value / max) * 100)}%`,
+                  background: item.tone ?? "#c4a15a",
+                }}
+              />
+            </div>
+          </>
+        );
+        return (
+          <li key={itemKey}>
+            {open ? (
+              <button
+                className={`w-full rounded-xl px-2 py-1 text-left ${selected === itemKey ? "bg-[#efe6d6]" : "hover:bg-[#f6f0e6]"}`}
+                type="button"
+                onClick={() => onSelect(itemKey)}
+              >
+                {body}
+              </button>
+            ) : (
+              <div className="px-2 py-1" title="No records in this bucket.">
+                {body}
+              </div>
+            )}
+          </li>
+        );
+      })}
     </ul>
   );
 }

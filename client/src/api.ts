@@ -98,16 +98,35 @@ export type Answer = {
   structured: boolean;
 };
 
+export type CouncilRecord = {
+  id: string;
+  label: string;
+  status?: string;
+  step?: string;
+  findingId?: string;
+  dueOn?: string | null;
+  headcount?: number;
+};
+
 export type CouncilReport = {
   asOf: string;
   findings: Record<string, number>;
   actions: Record<string, number>;
   inspections: Record<string, number>;
-  overdueActions: Array<{ id: string; description: string; dueOn: string; status: string }>;
+  overdueActions: Array<{ id: string; findingId: string; label: string; dueOn: string | null; status: string }>;
   exposureGroups: { groups: number; people: number };
   obligations: number;
   wasteStreams: number;
   spills: number;
+  records: {
+    findings: CouncilRecord[];
+    actions: CouncilRecord[];
+    inspections: CouncilRecord[];
+    obligations: CouncilRecord[];
+    wasteStreams: CouncilRecord[];
+    spills: CouncilRecord[];
+    exposureGroups: CouncilRecord[];
+  };
   notStored: Array<{ item: string; reason: string }>;
 };
 
