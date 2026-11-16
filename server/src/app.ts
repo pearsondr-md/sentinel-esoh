@@ -14,6 +14,15 @@ import {
 } from "../../shared/src/index.ts";
 import { openDatabase } from "./db.ts";
 import {
+  FIRE_KINDS,
+  MISHAP_NOTICE,
+  MISHAP_OUTCOMES,
+  PERSONNEL_CATEGORIES,
+  SPILL_STEPS,
+  TRAINING_TOPICS,
+} from "./army.ts";
+import { CHECKLISTS, LIBRARY } from "./library.ts";
+import {
   lookupAcceptance,
   lookupMatrix,
   type AcceptanceCell,
@@ -109,15 +118,117 @@ export function createApp(
     const actor = requireActor(db, req);
     const ids = actor.organizationIds;
     if (ids.length === 0) {
-      res.json({ inspections: [], findings: [] });
+      res.json({ inspections: [], findings: [], overdue: [] });
       return;
     }
     const inspections = listScoped(db, actor, "inspection", "inspected_on DESC").map(publicInspection);
     const rows = findingWorkRows(db, ids);
+    const today = localDate();
+    const overdue = overdueInScope(db, ids, today);
     res.json({
       inspections,
       findings: rows.map(publicWorkFinding),
+      overdue,
     });
+  }));
+
+  app.get("/organizations", wrap((req, res) => {
+    const actor = requireActor(db, req);
+    if (actor.organizationIds.length === 0) {
+      res.json({ organizations: [] });
+      return;
+    }
+    const placeholders = actor.organizationIds.map(() => "?").join(", ");
+    const rows = db
+      .prepare(`SELECT id, name FROM organization WHERE id IN (${placeholders}) ORDER BY name`)
+      .all(...actor.organizationIds) as Array<{ id: string; name: string }>;
+    res.json({ organizations: rows });
+  }));
+
+  app.get("/checklists", wrap((req, res) => {
+    requireActor(db, req);
+    res.json({ checklists: CHECKLISTS });
+  }));
+
+  app.get("/library", wrap((req, res) => {
+    requireActor(db, req);
+    res.json({
+      notice: "Names a shop can pick. A safety data sheet is not stored. A job step does not set a risk level.",
+      entries: LIBRARY,
+    });
+  }));
+
+  app.get("/comparison", wrap((req, res) => {
+    const actor = requireActor(db, req);
+    if (!actor.roles.includes("safety officer") && !actor.roles.includes("commander")) {
+      throw new HttpError(403, "safety officer or commander is required");
+    }
+    res.json({
+      notice: "Counts of records at each camp. Not a score and not a rate. The words of another camp's findings are not included.",
+      camps: campCounts(db, localDate()),
+    });
+  }));
+
+  app.post("/checklist-walks", wrap((req, res) => {
+    const actor = requireActor(db, req);
+    requireRole(actor, "safety officer");
+    const body = bodyOf(req);
+    const checklist = CHECKLISTS.find((item) => item.id === body.checklistId);
+    if (!checklist) {
+      throw new HttpError(400, "checklist not found");
+    }
+    const answers = Array.isArray(body.answers) ? body.answers : [];
+    const byId = new Map<string, boolean>();
+    for (const answer of answers) {
+      if (!answer || typeof answer !== "object") {
+        throw new HttpError(400, "each line needs a pass or a fail");
+      }
+      const row = answer as { itemId?: unknown; passed?: unknown };
+      if (typeof row.itemId !== "string" || typeof row.passed !== "boolean") {
+        throw new HttpError(400, "each line needs a pass or a fail");
+      }
+      byId.set(row.itemId, row.passed);
+    }
+    for (const item of checklist.items) {
+      if (!byId.has(item.id)) {
+        throw new HttpError(400, "each line needs a pass or a fail");
+      }
+    }
+    const organizationId = typeof body.organizationId === "string" ? body.organizationId : homeOrg(actor);
+    if (!actor.organizationIds.includes(organizationId)) {
+      throw new HttpError(404, "record not found");
+    }
+    const inspectedOn = requireString(body, "inspectedOn");
+    const inspectionId = randomUUID();
+    const stamp = now();
+    db.prepare(
+      `INSERT INTO inspection (id, organization_id, shop_name, inspected_on, inspector_user_id, status, created_at, created_by)
+       VALUES (?, ?, ?, ?, ?, 'draft', ?, ?)`,
+    ).run(inspectionId, organizationId, checklist.shopName, inspectedOn, actor.id, stamp, actor.id);
+    const findings: Array<{ id: string; originalText: string }> = [];
+    for (const item of checklist.items) {
+      const passed = byId.get(item.id) === true;
+      let findingId: string | null = null;
+      if (!passed) {
+        const observationId = randomUUID();
+        db.prepare(
+          `INSERT INTO observation (id, organization_id, inspection_id, text, created_at, created_by) VALUES (?, ?, ?, ?, ?, ?)`,
+        ).run(observationId, organizationId, inspectionId, item.text, stamp, actor.id);
+        const finding = insertFinding(db, actor, {
+          organizationId,
+          originalText: item.text,
+          sourceObservationId: observationId,
+          sourceReportId: null,
+        });
+        findingId = finding.id;
+        findings.push({ id: finding.id, originalText: finding.original_text });
+      }
+      db.prepare(
+        `INSERT INTO inspection_line (id, organization_id, inspection_id, item_text, result, finding_id, created_at, created_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).run(randomUUID(), organizationId, inspectionId, item.text, passed ? "pass" : "fail", findingId, stamp, actor.id);
+    }
+    res.status(201).json({ inspectionId, findings });
   }));
 
   app.get("/inspections/:id", wrap((req, res) => {
@@ -347,9 +458,62 @@ export function createApp(
     res.status(201).json(publicFinding(finding));
   }));
 
+  app.get("/materials", wrap((req, res) => {
+    const actor = requireActor(db, req);
+    res.json({
+      notice: "The inventory says where the safety data sheet is kept. The sheet itself is not stored, and this record is not a cleanup procedure.",
+      materials: listScoped(db, actor, "hazardous_material", "name ASC").map(publicMaterial),
+    });
+  }));
+
+  app.post("/materials", wrap((req, res) => {
+    const actor = requireActor(db, req);
+    requireRole(actor, "safety officer");
+    const body = bodyOf(req);
+    rejectMaterialExtras(body);
+    const id = randomUUID();
+    db.prepare(
+      `INSERT INTO hazardous_material (id, organization_id, name, storage_place, sheet_place, created_at, created_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      id,
+      homeOrg(actor),
+      requireString(body, "name"),
+      requireString(body, "storagePlace"),
+      requireString(body, "sheetPlace"),
+      now(),
+      actor.id,
+    );
+    res.status(201).json(publicMaterial(getOne(db, "hazardous_material", id)));
+  }));
+
+  app.get("/materials/:id", wrap((req, res) => {
+    const actor = requireActor(db, req);
+    const material = mustGet(db, "hazardous_material", routeId(req.params.id), actor);
+    res.json({
+      material: publicMaterial(material),
+      findings: linkedFindings(db, "hazardous_material_finding", "material_id", material.id),
+    });
+  }));
+
+  app.post("/materials/:id/findings", wrap((req, res) => {
+    const actor = requireActor(db, req);
+    requireRole(actor, "safety officer");
+    const material = mustGet(db, "hazardous_material", routeId(req.params.id), actor);
+    const finding = insertFinding(db, actor, {
+      organizationId: material.organization_id,
+      originalText: requireOriginalText(bodyOf(req)),
+      sourceObservationId: null,
+      sourceReportId: null,
+      programArea: "materials",
+    });
+    db.prepare("INSERT INTO hazardous_material_finding (material_id, finding_id) VALUES (?, ?)").run(material.id, finding.id);
+    res.status(201).json(publicFinding(finding));
+  }));
+
   app.get("/spills", wrap((req, res) => {
     const actor = requireActor(db, req);
-    res.json({ spills: listScoped(db, actor, "spill", "created_at DESC").map(publicSpill) });
+    res.json({ spills: listScoped(db, actor, "spill", "created_at DESC").map((row) => publicSpill(db, row)) });
   }));
 
   app.post("/spills", wrap((req, res) => {
@@ -357,21 +521,27 @@ export function createApp(
     requireRole(actor, "safety officer");
     const body = bodyOf(req);
     rejectCompliance(body);
-    if ("mishapId" in body && body.mishapId !== null) {
-      throw new HttpError(400, "mishap records are not in this build");
+    rejectMaterialExtras(body);
+    if ("mishapId" in body) {
+      throw new HttpError(400, "record the mishap on its own. A spill does not assign a mishap class");
     }
+    const materialId = materialInHome(db, actor, body.materialId);
     const id = randomUUID();
     db.prepare(
-      `INSERT INTO spill (id, organization_id, description, reported_to, created_at, created_by)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-    ).run(id, homeOrg(actor), requireString(body, "description"), requireString(body, "reportedTo"), now(), actor.id);
-    res.status(201).json(publicSpill(getOne(db, "spill", id)));
+      `INSERT INTO spill (id, organization_id, material_id, description, reported_to, created_at, created_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    ).run(id, homeOrg(actor), materialId, requireString(body, "description"), requireString(body, "reportedTo"), now(), actor.id);
+    res.status(201).json(publicSpill(db, getOne(db, "spill", id)));
   }));
 
   app.get("/spills/:id", wrap((req, res) => {
     const actor = requireActor(db, req);
     const spill = mustGet(db, "spill", routeId(req.params.id), actor);
-    res.json({ spill: publicSpill(spill), findings: linkedFindings(db, "spill_finding", "spill_id", spill.id) });
+    res.json({
+      spill: publicSpill(db, spill),
+      steps: spillSteps(db, spill.id),
+      findings: linkedFindings(db, "spill_finding", "spill_id", spill.id),
+    });
   }));
 
   app.post("/spills/:id/findings", wrap((req, res) => {
@@ -386,6 +556,172 @@ export function createApp(
       programArea: "tanks and spills",
     });
     db.prepare("INSERT INTO spill_finding (spill_id, finding_id) VALUES (?, ?)").run(spill.id, finding.id);
+    res.status(201).json(publicFinding(finding));
+  }));
+
+  app.post("/spills/:id/steps", wrap((req, res) => {
+    const actor = requireActor(db, req);
+    requireRole(actor, "safety officer");
+    const spill = mustGet(db, "spill", routeId(req.params.id), actor);
+    const body = bodyOf(req);
+    rejectCompliance(body);
+    const step = requireEnum(body, "step", [...SPILL_STEPS]);
+    const id = randomUUID();
+    try {
+      db.prepare(
+        `INSERT INTO spill_response (id, organization_id, spill_id, step, note, created_at, created_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      ).run(id, spill.organization_id, spill.id, step, requireString(body, "note"), now(), actor.id);
+    } catch (error) {
+      if (error instanceof Error && error.message.includes("UNIQUE")) {
+        throw new HttpError(400, "that cleanup step is already recorded");
+      }
+      throw error;
+    }
+    res.status(201).json({ id, step, note: requireString(body, "note") });
+  }));
+
+  app.get("/mishaps", wrap((req, res) => {
+    const actor = requireActor(db, req);
+    res.json({
+      notice: MISHAP_NOTICE,
+      mishaps: listScoped(db, actor, "mishap", "occurred_on DESC").map(publicMishap),
+    });
+  }));
+
+  app.post("/mishaps", wrap((req, res) => {
+    const actor = requireActor(db, req);
+    requireRole(actor, "safety officer");
+    const body = bodyOf(req);
+    rejectMishapExtras(body);
+    const id = randomUUID();
+    const occurredOn = requireDate(body, "occurredOn");
+    const personnelCategory = requireEnum(body, "personnelCategory", [...PERSONNEL_CATEGORIES]);
+    const outcome = requireEnum(body, "outcome", [...MISHAP_OUTCOMES]);
+    db.prepare(
+      `INSERT INTO mishap (id, organization_id, occurred_on, narrative, personnel_category, outcome, created_at, created_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(id, homeOrg(actor), occurredOn, requireString(body, "narrative"), personnelCategory, outcome, now(), actor.id);
+    res.status(201).json({ notice: MISHAP_NOTICE, clock: mishapClock(personnelCategory, outcome), mishap: publicMishap(getOne(db, "mishap", id)) });
+  }));
+
+  app.get("/mishaps/:id", wrap((req, res) => {
+    const actor = requireActor(db, req);
+    const mishap = mustGet(db, "mishap", routeId(req.params.id), actor);
+    const row = publicMishap(mishap);
+    res.json({
+      notice: MISHAP_NOTICE,
+      clock: mishapClock(row.personnelCategory, row.outcome),
+      mishap: row,
+      findings: linkedFindings(db, "mishap_finding", "mishap_id", mishap.id),
+    });
+  }));
+
+  app.post("/mishaps/:id/findings", wrap((req, res) => {
+    const actor = requireActor(db, req);
+    requireRole(actor, "safety officer");
+    const mishap = mustGet(db, "mishap", routeId(req.params.id), actor);
+    const finding = insertFinding(db, actor, {
+      organizationId: mishap.organization_id,
+      originalText: requireOriginalText(bodyOf(req)),
+      sourceObservationId: null,
+      sourceReportId: null,
+    });
+    db.prepare("INSERT INTO mishap_finding (mishap_id, finding_id) VALUES (?, ?)").run(mishap.id, finding.id);
+    res.status(201).json(publicFinding(finding));
+  }));
+
+  app.get("/training", wrap((req, res) => {
+    const actor = requireActor(db, req);
+    res.json({ sessions: listScoped(db, actor, "training_session", "due_on DESC").map(publicTraining) });
+  }));
+
+  app.post("/training", wrap((req, res) => {
+    const actor = requireActor(db, req);
+    requireRole(actor, "safety officer");
+    const body = bodyOf(req);
+    rejectTrainingExtras(body);
+    const topic = requireEnum(body, "topic", Object.keys(TRAINING_TOPICS));
+    const headcount = Number(body.headcount);
+    if (!Number.isInteger(headcount) || headcount < 1) throw new HttpError(400, "headcount must be a whole number of people");
+    const completedOn = body.completedOn == null || body.completedOn === "" ? null : requireDate(body, "completedOn");
+    const id = randomUUID();
+    db.prepare(
+      `INSERT INTO training_session (id, organization_id, topic, audience, due_on, completed_on, headcount, created_at, created_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(id, homeOrg(actor), topic, requireString(body, "audience"), requireDate(body, "dueOn"), completedOn, headcount, now(), actor.id);
+    res.status(201).json(publicTraining(getOne(db, "training_session", id)));
+  }));
+
+  app.get("/training/:id", wrap((req, res) => {
+    const actor = requireActor(db, req);
+    const session = mustGet(db, "training_session", routeId(req.params.id), actor);
+    res.json({ session: publicTraining(session), findings: linkedFindings(db, "training_finding", "training_id", session.id) });
+  }));
+
+  app.post("/training/:id/findings", wrap((req, res) => {
+    const actor = requireActor(db, req);
+    requireRole(actor, "safety officer");
+    const session = mustGet(db, "training_session", routeId(req.params.id), actor);
+    const finding = insertFinding(db, actor, {
+      organizationId: session.organization_id,
+      originalText: requireOriginalText(bodyOf(req)),
+      sourceObservationId: null,
+      sourceReportId: null,
+    });
+    db.prepare("INSERT INTO training_finding (training_id, finding_id) VALUES (?, ?)").run(session.id, finding.id);
+    res.status(201).json(publicFinding(finding));
+  }));
+
+  app.get("/wildland-fires", wrap((req, res) => {
+    const actor = requireActor(db, req);
+    res.json({
+      notice: "AR 200-1 treats a wildland fire as any non-structural fire on unimproved ground. That includes a wildfire and a prescribed burn. A prescribed burn is the Army term for a planned burn. Remediation is the work after the fire. This record does not store an ignition plan.",
+      fires: listScoped(db, actor, "wildland_fire", "occurred_on DESC").map(publicFire),
+    });
+  }));
+
+  app.post("/wildland-fires", wrap((req, res) => {
+    const actor = requireActor(db, req);
+    requireRole(actor, "safety officer");
+    const body = bodyOf(req);
+    rejectFireExtras(body);
+    const id = randomUUID();
+    db.prepare(
+      `INSERT INTO wildland_fire (id, organization_id, kind, place, occurred_on, purpose, note, created_at, created_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      id,
+      homeOrg(actor),
+      requireEnum(body, "kind", [...FIRE_KINDS]),
+      requireString(body, "place"),
+      requireDate(body, "occurredOn"),
+      requireString(body, "purpose"),
+      requireString(body, "note"),
+      now(),
+      actor.id,
+    );
+    res.status(201).json(publicFire(getOne(db, "wildland_fire", id)));
+  }));
+
+  app.get("/wildland-fires/:id", wrap((req, res) => {
+    const actor = requireActor(db, req);
+    const fire = mustGet(db, "wildland_fire", routeId(req.params.id), actor);
+    res.json({ fire: publicFire(fire), findings: linkedFindings(db, "wildland_fire_finding", "wildland_fire_id", fire.id) });
+  }));
+
+  app.post("/wildland-fires/:id/findings", wrap((req, res) => {
+    const actor = requireActor(db, req);
+    requireRole(actor, "safety officer");
+    const fire = mustGet(db, "wildland_fire", routeId(req.params.id), actor);
+    const finding = insertFinding(db, actor, {
+      organizationId: fire.organization_id,
+      originalText: requireOriginalText(bodyOf(req)),
+      sourceObservationId: null,
+      sourceReportId: null,
+      programArea: fire.kind === "remediation" ? "cleanup" : "natural resources",
+    });
+    db.prepare("INSERT INTO wildland_fire_finding (wildland_fire_id, finding_id) VALUES (?, ?)").run(fire.id, finding.id);
     res.status(201).json(publicFinding(finding));
   }));
 
@@ -433,6 +769,10 @@ export function createApp(
     const obligationRows = orgRows(db, "obligation", "id, title", ids, "created_at DESC");
     const wasteRows = orgRows(db, "waste_stream", "id, name", ids, "created_at DESC");
     const spillRows = orgRows(db, "spill", "id, description", ids, "created_at DESC");
+    const materialRows = orgRows(db, "hazardous_material", "id, name, storage_place", ids, "name DESC");
+    const mishapRows = orgRows(db, "mishap", "id, narrative, personnel_category, outcome", ids, "occurred_on DESC");
+    const trainingRows = orgRows(db, "training_session", "id, topic, audience, due_on, completed_on", ids, "due_on DESC");
+    const fireRows = orgRows(db, "wildland_fire", "id, kind, place", ids, "occurred_on DESC");
     const exposureRows = orgRows(db, "exposure_group", "id, agent, shop, headcount", ids, "created_at DESC");
     const actions = actionRows.map((row) => ({
       id: String(row.id),
@@ -459,6 +799,10 @@ export function createApp(
       obligations: obligationRows.length,
       wasteStreams: wasteRows.length,
       spills: spillRows.length,
+      materials: materialRows.length,
+      mishaps: mishapRows.length,
+      training: trainingRows.length,
+      wildlandFires: fireRows.length,
       records: {
         findings: findingRows.map((row) => ({
           id: row.id,
@@ -475,12 +819,32 @@ export function createApp(
         obligations: obligationRows.map((row) => ({ id: String(row.id), label: String(row.title) })),
         wasteStreams: wasteRows.map((row) => ({ id: String(row.id), label: String(row.name) })),
         spills: spillRows.map((row) => ({ id: String(row.id), label: String(row.description) })),
+        materials: materialRows.map((row) => ({
+          id: String(row.id),
+          label: `${String(row.name)} · ${String(row.storage_place)}`,
+        })),
+        mishaps: mishapRows.map((row) => ({
+          id: String(row.id),
+          label: `${String(row.personnel_category)} · ${String(row.outcome)}`,
+        })),
+        training: trainingRows.map((row) => ({
+          id: String(row.id),
+          label: `${String(row.topic)} · ${String(row.audience)}`,
+          dueOn: String(row.due_on),
+          status: row.completed_on == null ? "open" : "complete",
+        })),
+        wildlandFires: fireRows.map((row) => ({
+          id: String(row.id),
+          label: `${String(row.kind)} · ${String(row.place)}`,
+        })),
         exposureGroups,
       },
       notStored: [
         { item: "ASOHMS implementation status", reason: "Official criteria are not loaded." },
-        { item: "Training completion", reason: "Training records are not in SENTINEL." },
-        { item: "Mishap summaries", reason: "Mishap class is not transcribed from DA Pam 385-40." },
+        {
+          item: "Mishap class",
+          reason: "DA Pam 385-40 class thresholds are not transcribed. The mishap narrative is stored without a class.",
+        },
         {
           item: "RAC 1, 2, or 3 facility abatement",
           reason: "The RAC crosswalk is not verified. Matrix levels stay in ATP words on each finding.",
@@ -638,6 +1002,29 @@ export function createApp(
     const actor = requireActor(db, req);
     const finding = mustFinding(db, routeId(req.params.id), actor);
     res.json(findingChain(db, finding));
+  }));
+
+  app.post("/findings/:id/authorizations", wrap((req, res) => {
+    const actor = requireActor(db, req);
+    requireRole(actor, "safety officer");
+    const finding = mustFinding(db, routeId(req.params.id), actor);
+    const body = bodyOf(req);
+    for (const key of ["decision", "accept", "matrixLevel", "risk", "authority"]) {
+      if (key in body) {
+        throw new HttpError(400, "a work authorization is not a risk acceptance");
+      }
+    }
+    const id = randomUUID();
+    db.prepare(
+      `INSERT INTO work_authorization (id, organization_id, finding_id, task_name, note, authorized_by, created_at, created_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(id, finding.organization_id, finding.id, requireString(body, "taskName"), requireString(body, "note"), actor.id, now(), actor.id);
+    res.status(201).json({
+      id,
+      taskName: requireString(body, "taskName"),
+      note: requireString(body, "note"),
+      authorizedBy: actor.displayName,
+    });
   }));
 
   app.post("/findings/:id/hazards", wrap((req, res) => {
@@ -1248,7 +1635,9 @@ function findingWorkRows(db: DatabaseSync, ids: string[]): Array<Record<string, 
   }
   const placeholders = ids.map(() => "?").join(", ");
   return db.prepare(
-    `SELECT f.id, f.original_text, f.status,
+    `SELECT f.id, f.organization_id, f.original_text, f.status,
+       (SELECT name FROM organization WHERE id = f.organization_id) AS organization_name,
+       (SELECT i.shop_name FROM inspection i JOIN observation o ON o.inspection_id = i.id WHERE o.id = f.source_observation_id) AS shop_name,
        (SELECT inspection_id FROM observation WHERE id = f.source_observation_id) AS inspection_id,
        (SELECT COUNT(*) FROM finding_hazard fh WHERE fh.finding_id = f.id) AS hazard_count,
        (SELECT COUNT(*) FROM risk_assessment ra
@@ -1295,8 +1684,73 @@ function publicWorkFinding(row: Record<string, unknown>) {
     actionStatus: row.action_status,
     actionDescription: row.action_description,
     actionOwnerUserId: row.action_owner_user_id,
+    organizationName: row.organization_name,
+    shopName: row.shop_name,
     step: workStep(row),
   };
+}
+
+function overdueInScope(db: DatabaseSync, ids: string[], today: string) {
+  if (ids.length === 0) return [];
+  const placeholders = ids.map(() => "?").join(", ");
+  const rows = db.prepare(
+    `SELECT id, finding_id, description, due_on FROM corrective_action
+     WHERE organization_id IN (${placeholders}) AND due_on IS NOT NULL AND due_on < ? AND status != 'closed'
+     ORDER BY due_on`,
+  ).all(...ids, today) as Array<{ id: string; finding_id: string; description: string; due_on: string }>;
+  return rows.map((row) => ({
+    id: row.id,
+    findingId: row.finding_id,
+    description: row.description,
+    dueOn: row.due_on,
+  }));
+}
+
+function campCounts(db: DatabaseSync, today: string) {
+  const orgs = db.prepare("SELECT id, parent_id, name FROM organization").all() as Array<{
+    id: string;
+    parent_id: string | null;
+    name: string;
+  }>;
+  const byId = new Map(orgs.map((org) => [org.id, org]));
+  const rootName = (id: string) => {
+    let current = byId.get(id);
+    const seen = new Set<string>();
+    while (current?.parent_id && !seen.has(current.id)) {
+      seen.add(current.id);
+      const parent = byId.get(current.parent_id);
+      if (!parent) break;
+      current = parent;
+    }
+    return current?.name ?? "Unknown";
+  };
+  const steps = ["assess", "decide", "assign", "verify", "close", "done"];
+  const buckets = new Map<string, Record<string, number>>();
+  for (const org of orgs) {
+    if (!org.parent_id) buckets.set(org.name, Object.fromEntries(steps.map((step) => [step, 0])));
+  }
+  for (const row of findingWorkRows(db, orgs.map((org) => org.id))) {
+    const name = rootName(String(row.organization_id));
+    const bucket = buckets.get(name) ?? Object.fromEntries(steps.map((step) => [step, 0]));
+    const step = String(workStep(row));
+    bucket[step] = (bucket[step] ?? 0) + 1;
+    buckets.set(name, bucket);
+  }
+  const late = db.prepare(
+    `SELECT organization_id, COUNT(*) AS n FROM corrective_action
+     WHERE due_on IS NOT NULL AND due_on < ? AND status != 'closed'
+     GROUP BY organization_id`,
+  ).all(today) as Array<{ organization_id: string; n: number }>;
+  const overdue = new Map<string, number>();
+  for (const row of late) {
+    const name = rootName(row.organization_id);
+    overdue.set(name, (overdue.get(name) ?? 0) + Number(row.n));
+  }
+  return [...buckets.entries()].map(([name, stepCounts]) => ({
+    name,
+    steps: stepCounts,
+    overdueActions: overdue.get(name) ?? 0,
+  }));
 }
 
 function tallyStatus(rows: Array<{ status: string }>): Record<string, number> {
@@ -1489,12 +1943,123 @@ function publicWaste(row: Record<string, unknown>) {
   };
 }
 
-function publicSpill(row: Record<string, unknown>) {
+function spillSteps(db: DatabaseSync, spillId: string) {
+  return (
+    db.prepare("SELECT id, step, note FROM spill_response WHERE spill_id = ? ORDER BY created_at").all(spillId) as Array<{
+      id: string;
+      step: string;
+      note: string;
+    }>
+  ).map((row) => ({ id: row.id, step: row.step, note: row.note }));
+}
+
+function publicMishap(row: Record<string, unknown>) {
+  return {
+    id: String(row.id),
+    occurredOn: String(row.occurred_on),
+    narrative: String(row.narrative),
+    personnelCategory: String(row.personnel_category),
+    outcome: String(row.outcome),
+  };
+}
+
+function mishapClock(personnelCategory: string, outcome: string): string | null {
+  const civilianInjury = personnelCategory === "DA civilian" && (outcome === "injury reported" || outcome === "occupational illness reported");
+  return civilianInjury
+    ? "For a DA civilian injury or illness, DA Pam 385-40 appendix H points notification at 29 CFR 1904.39. The safety officer makes that notice outside SENTINEL."
+    : null;
+}
+
+function publicTraining(row: Record<string, unknown>) {
+  const topic = String(row.topic);
+  return {
+    id: String(row.id),
+    topic,
+    audience: String(row.audience),
+    dueOn: String(row.due_on),
+    completedOn: row.completed_on == null ? null : String(row.completed_on),
+    headcount: Number(row.headcount),
+    basis: TRAINING_TOPICS[topic as keyof typeof TRAINING_TOPICS] ?? "Training topic is not on the Army list used here.",
+  };
+}
+
+function publicFire(row: Record<string, unknown>) {
+  return {
+    id: String(row.id),
+    kind: String(row.kind),
+    place: String(row.place),
+    occurredOn: String(row.occurred_on),
+    purpose: String(row.purpose),
+    note: String(row.note),
+  };
+}
+
+function rejectMishapExtras(body: Record<string, unknown>): void {
+  rejectCompliance(body);
+  for (const key of ["class", "mishapClass", "diagnosis", "patient", "name", "medical", "oshaRate", "daysAway", "cost", "log"]) {
+    if (key in body) throw new HttpError(400, "a mishap here has no class, no name, no diagnosis, and no OSHA rate");
+  }
+}
+
+function rejectTrainingExtras(body: Record<string, unknown>): void {
+  rejectCompliance(body);
+  for (const key of ["certified", "qualified", "license", "credential"]) {
+    if (key in body) throw new HttpError(400, "a training headcount is not a qualification");
+  }
+}
+
+function rejectFireExtras(body: Record<string, unknown>): void {
+  rejectCompliance(body);
+  for (const key of ["ignition", "fuelMoisture", "prescription", "weather"]) {
+    if (key in body) throw new HttpError(400, "an ignition plan is not stored");
+  }
+}
+
+function requireDate(body: Record<string, unknown>, key: string): string {
+  const value = requireString(body, key);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) throw new HttpError(400, `${key} must be a date`);
+  return value;
+}
+
+function publicMaterial(row: Record<string, unknown>) {
+  return {
+    id: String(row.id),
+    name: String(row.name),
+    storagePlace: String(row.storage_place),
+    sheetPlace: String(row.sheet_place),
+  };
+}
+
+function materialInHome(db: DatabaseSync, actor: Actor, value: unknown): string | null {
+  if (value == null || value === "") return null;
+  if (typeof value !== "string") throw new HttpError(400, "materialId must name a material in this place");
+  const material = mustGet(db, "hazardous_material", value, actor);
+  if (material.organization_id !== homeOrg(actor)) {
+    throw new HttpError(400, "the material has to be kept at the place filing the spill");
+  }
+  return material.id;
+}
+
+function rejectMaterialExtras(body: Record<string, unknown>): void {
+  rejectCompliance(body);
+  for (const key of ["sheetText", "composition", "ingredients", "firstAid", "cleanup", "recipe"]) {
+    if (key in body) throw new HttpError(400, "the safety data sheet text is not stored");
+  }
+}
+
+function publicSpill(db: DatabaseSync, row: Record<string, unknown>) {
+  const material = row.material_id == null
+    ? undefined
+    : (db.prepare("SELECT name, storage_place, sheet_place FROM hazardous_material WHERE id = ?").get(String(row.material_id)) as { name: string; storage_place: string; sheet_place: string } | undefined);
   return {
     id: row.id,
     organizationId: row.organization_id,
     description: row.description,
     reportedTo: row.reported_to,
+    materialId: row.material_id == null ? null : String(row.material_id),
+    materialName: material?.name ?? null,
+    storagePlace: material?.storage_place ?? null,
+    sheetPlace: material?.sheet_place ?? null,
   };
 }
 
@@ -1623,6 +2188,25 @@ function findingChain(db: DatabaseSync, finding: FindingRow) {
     actions: (actions as Record<string, unknown>[]).map(publicAction),
     evidence: (evidence as Record<string, unknown>[]).map(publicEvidence),
     verifications: (verifications as Record<string, unknown>[]).map(publicVerification),
+    authorizations: (
+      db.prepare(
+        `SELECT w.id, w.task_name, w.note, u.display_name AS authorized_by, w.created_at
+         FROM work_authorization w JOIN user u ON u.id = w.authorized_by
+         WHERE w.finding_id = ? ORDER BY w.created_at`,
+      ).all(finding.id) as Array<{
+        id: string;
+        task_name: string;
+        note: string;
+        authorized_by: string;
+        created_at: string;
+      }>
+    ).map((row) => ({
+      id: row.id,
+      taskName: row.task_name,
+      note: row.note,
+      authorizedBy: row.authorized_by,
+      createdAt: row.created_at,
+    })),
   };
 }
 

@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { DatabaseSync } from "node:sqlite";
 import { ACCEPTANCE_CELLS, MATRIX_CELLS } from "./doctrine.ts";
 import { hashPassword } from "./passwords.ts";
+import { ensureArmyRecords } from "./army.ts";
 import { ensureLocations } from "./locations.ts";
 import { SOURCE_CARDS } from "./sources.ts";
 
@@ -246,9 +247,26 @@ CREATE TABLE IF NOT EXISTS waste_stream_finding (
   PRIMARY KEY (waste_stream_id, finding_id)
 );
 
+CREATE TABLE IF NOT EXISTS hazardous_material (
+  id TEXT PRIMARY KEY,
+  organization_id TEXT NOT NULL REFERENCES organization(id),
+  name TEXT NOT NULL,
+  storage_place TEXT NOT NULL,
+  sheet_place TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  created_by TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS hazardous_material_finding (
+  material_id TEXT NOT NULL REFERENCES hazardous_material(id),
+  finding_id TEXT NOT NULL REFERENCES finding(id),
+  PRIMARY KEY (material_id, finding_id)
+);
+
 CREATE TABLE IF NOT EXISTS spill (
   id TEXT PRIMARY KEY,
   organization_id TEXT NOT NULL REFERENCES organization(id),
+  material_id TEXT REFERENCES hazardous_material(id),
   description TEXT NOT NULL,
   reported_to TEXT NOT NULL,
   created_at TEXT NOT NULL,
@@ -259,6 +277,70 @@ CREATE TABLE IF NOT EXISTS spill_finding (
   spill_id TEXT NOT NULL REFERENCES spill(id),
   finding_id TEXT NOT NULL REFERENCES finding(id),
   PRIMARY KEY (spill_id, finding_id)
+);
+
+CREATE TABLE IF NOT EXISTS spill_response (
+  id TEXT PRIMARY KEY,
+  organization_id TEXT NOT NULL REFERENCES organization(id),
+  spill_id TEXT NOT NULL REFERENCES spill(id),
+  step TEXT NOT NULL,
+  note TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  created_by TEXT NOT NULL,
+  UNIQUE (spill_id, step)
+);
+
+CREATE TABLE IF NOT EXISTS mishap (
+  id TEXT PRIMARY KEY,
+  organization_id TEXT NOT NULL REFERENCES organization(id),
+  occurred_on TEXT NOT NULL,
+  narrative TEXT NOT NULL,
+  personnel_category TEXT NOT NULL,
+  outcome TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  created_by TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS mishap_finding (
+  mishap_id TEXT NOT NULL REFERENCES mishap(id),
+  finding_id TEXT NOT NULL REFERENCES finding(id),
+  PRIMARY KEY (mishap_id, finding_id)
+);
+
+CREATE TABLE IF NOT EXISTS training_session (
+  id TEXT PRIMARY KEY,
+  organization_id TEXT NOT NULL REFERENCES organization(id),
+  topic TEXT NOT NULL,
+  audience TEXT NOT NULL,
+  due_on TEXT NOT NULL,
+  completed_on TEXT,
+  headcount INTEGER NOT NULL,
+  created_at TEXT NOT NULL,
+  created_by TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS training_finding (
+  training_id TEXT NOT NULL REFERENCES training_session(id),
+  finding_id TEXT NOT NULL REFERENCES finding(id),
+  PRIMARY KEY (training_id, finding_id)
+);
+
+CREATE TABLE IF NOT EXISTS wildland_fire (
+  id TEXT PRIMARY KEY,
+  organization_id TEXT NOT NULL REFERENCES organization(id),
+  kind TEXT NOT NULL,
+  place TEXT NOT NULL,
+  occurred_on TEXT NOT NULL,
+  purpose TEXT NOT NULL,
+  note TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  created_by TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS wildland_fire_finding (
+  wildland_fire_id TEXT NOT NULL REFERENCES wildland_fire(id),
+  finding_id TEXT NOT NULL REFERENCES finding(id),
+  PRIMARY KEY (wildland_fire_id, finding_id)
 );
 
 CREATE TABLE IF NOT EXISTS exposure_group (
@@ -324,6 +406,28 @@ CREATE TABLE IF NOT EXISTS ai_exchange (
   created_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS inspection_line (
+  id TEXT PRIMARY KEY,
+  organization_id TEXT NOT NULL REFERENCES organization(id),
+  inspection_id TEXT NOT NULL REFERENCES inspection(id),
+  item_text TEXT NOT NULL,
+  result TEXT NOT NULL,
+  finding_id TEXT REFERENCES finding(id),
+  created_at TEXT NOT NULL,
+  created_by TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS work_authorization (
+  id TEXT PRIMARY KEY,
+  organization_id TEXT NOT NULL REFERENCES organization(id),
+  finding_id TEXT REFERENCES finding(id),
+  task_name TEXT NOT NULL,
+  note TEXT NOT NULL,
+  authorized_by TEXT NOT NULL REFERENCES user(id),
+  created_at TEXT NOT NULL,
+  created_by TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS record_event (
   id TEXT PRIMARY KEY,
   organization_id TEXT NOT NULL REFERENCES organization(id),
@@ -350,12 +454,21 @@ export function openDatabase(dbPath: string): DatabaseSync {
   const db = new DatabaseSync(dbPath);
   db.exec("PRAGMA foreign_keys = ON;");
   db.exec(SCHEMA);
+  ensureColumn(db, "spill", "material_id", "TEXT REFERENCES hazardous_material(id)");
   seed(db);
   ensureShopEmployee(db);
   ensureAsohms(db);
   ensureSources(db);
   ensureLocations(db, hashPassword(DEMO_PASSWORD));
+  ensureArmyRecords(db);
   return db;
+}
+
+function ensureColumn(db: DatabaseSync, table: string, column: string, definition: string): void {
+  const columns = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+  if (!columns.some((item) => item.name === column)) {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+  }
 }
 
 function seed(db: DatabaseSync): void {

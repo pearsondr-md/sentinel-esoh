@@ -1,11 +1,27 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { PROGRAM_AREAS, WASTE_KINDS } from "../../shared/src/index.ts";
-import { api, type FindingSummary, type Obligation, type Session, type Spill, type WasteStream } from "./api.ts";
+import {
+  api,
+  type FindingSummary,
+  type HazardousMaterial,
+  type Mishap,
+  type Obligation,
+  type Session,
+  type Spill,
+  type SpillStep,
+  type TrainingSession,
+  type WasteStream,
+  type WildlandFire,
+} from "./api.ts";
 
 export type EnvironmentalSelection =
   | { kind: "obligation"; id: string }
   | { kind: "waste"; id: string }
-  | { kind: "spill"; id: string };
+  | { kind: "spill"; id: string }
+  | { kind: "material"; id: string }
+  | { kind: "mishap"; id: string }
+  | { kind: "training"; id: string }
+  | { kind: "fire"; id: string };
 
 export function EnvironmentalLists({
   session,
@@ -19,18 +35,36 @@ export function EnvironmentalLists({
   const [obligations, setObligations] = useState<Obligation[]>([]);
   const [wastes, setWastes] = useState<WasteStream[]>([]);
   const [spills, setSpills] = useState<Spill[]>([]);
+  const [materials, setMaterials] = useState<HazardousMaterial[]>([]);
+  const [materialNotice, setMaterialNotice] = useState("");
+  const [mishaps, setMishaps] = useState<Mishap[]>([]);
+  const [mishapNotice, setMishapNotice] = useState("");
+  const [sessions, setSessions] = useState<TrainingSession[]>([]);
+  const [fires, setFires] = useState<WildlandFire[]>([]);
+  const [fireNotice, setFireNotice] = useState("");
   const [error, setError] = useState<string | null>(null);
   const safety = session.roles.includes("safety officer");
 
   async function reload() {
-    const [obligationBody, wasteBody, spillBody] = await Promise.all([
+    const [obligationBody, wasteBody, spillBody, materialBody, mishapBody, trainingBody, fireBody] = await Promise.all([
       api.obligations(session.token),
       api.wasteStreams(session.token),
       api.spills(session.token),
+      api.materials(session.token),
+      api.mishaps(session.token),
+      api.training(session.token),
+      api.wildlandFires(session.token),
     ]);
     setObligations(obligationBody.obligations);
     setWastes(wasteBody.wasteStreams);
     setSpills(spillBody.spills);
+    setMaterials(materialBody.materials);
+    setMaterialNotice(materialBody.notice);
+    setMishaps(mishapBody.mishaps);
+    setMishapNotice(mishapBody.notice);
+    setSessions(trainingBody.sessions);
+    setFires(fireBody.fires);
+    setFireNotice(fireBody.notice);
   }
 
   useEffect(() => {
@@ -39,9 +73,9 @@ export function EnvironmentalLists({
 
   return (
     <div>
-      <h2 className="mb-1 text-lg font-semibold">Environmental</h2>
+      <h2 className="mb-1 text-lg font-semibold">Programs</h2>
       <p className="mb-3 text-sm text-stone-600">
-        Duties are tracked here. A permit condition, an enforcement matter, and spill liability stay with legal counsel.
+        Environmental duties, mishaps, training, spill cleanup, and wildland fire sit on the same finding path. A class, an OSHA rate, a diagnosis, and an ignition plan are not stored.
       </p>
       {error ? <p className="mb-3 text-sm text-red-800">{error}</p> : null}
       <RecordList
@@ -75,6 +109,22 @@ export function EnvironmentalLists({
           }}
         />
       ) : null}
+      <p className="mb-2 text-sm text-stone-600">{materialNotice}</p>
+      <RecordList
+        title="Hazardous materials"
+        items={materials.map((item) => ({ id: item.id, label: item.name, detail: `${item.storagePlace}. Sheet: ${item.sheetPlace}.` }))}
+        selectedId={selected?.kind === "material" ? selected.id : null}
+        onSelect={(id) => onSelect({ kind: "material", id })}
+      />
+      {safety ? (
+        <MaterialForm
+          token={session.token}
+          onCreated={(material) => {
+            onSelect({ kind: "material", id: material.id });
+            reload().catch((caught: unknown) => setError(messageOf(caught)));
+          }}
+        />
+      ) : null}
       <RecordList
         title="Spills"
         items={spills.map((item) => ({ id: item.id, label: item.description, detail: item.reportedTo }))}
@@ -84,8 +134,60 @@ export function EnvironmentalLists({
       {safety ? (
         <SpillForm
           token={session.token}
+          materials={materials}
           onCreated={(spill) => {
             onSelect({ kind: "spill", id: spill.id });
+            reload().catch((caught: unknown) => setError(messageOf(caught)));
+          }}
+        />
+      ) : null}
+      <p className="mb-2 text-sm text-stone-600">{mishapNotice}</p>
+      <RecordList
+        title="Mishaps"
+        items={mishaps.map((item) => ({ id: item.id, label: item.narrative, detail: `${item.personnelCategory} · ${item.outcome}` }))}
+        selectedId={selected?.kind === "mishap" ? selected.id : null}
+        onSelect={(id) => onSelect({ kind: "mishap", id })}
+      />
+      {safety ? (
+        <MishapForm
+          token={session.token}
+          onCreated={(mishap) => {
+            onSelect({ kind: "mishap", id: mishap.id });
+            reload().catch((caught: unknown) => setError(messageOf(caught)));
+          }}
+        />
+      ) : null}
+      <RecordList
+        title="Training"
+        items={sessions.map((item) => ({
+          id: item.id,
+          label: `${item.topic} · ${item.audience}`,
+          detail: item.completedOn ? `Completed ${item.completedOn}. ${item.headcount} people.` : `Due ${item.dueOn}. ${item.headcount} people.`,
+        }))}
+        selectedId={selected?.kind === "training" ? selected.id : null}
+        onSelect={(id) => onSelect({ kind: "training", id })}
+      />
+      {safety ? (
+        <TrainingForm
+          token={session.token}
+          onCreated={(sessionRow) => {
+            onSelect({ kind: "training", id: sessionRow.id });
+            reload().catch((caught: unknown) => setError(messageOf(caught)));
+          }}
+        />
+      ) : null}
+      <p className="mb-2 text-sm text-stone-600">{fireNotice}</p>
+      <RecordList
+        title="Wildland fire"
+        items={fires.map((item) => ({ id: item.id, label: `${item.kind} · ${item.place}`, detail: item.purpose }))}
+        selectedId={selected?.kind === "fire" ? selected.id : null}
+        onSelect={(id) => onSelect({ kind: "fire", id })}
+      />
+      {safety ? (
+        <FireForm
+          token={session.token}
+          onCreated={(fire) => {
+            onSelect({ kind: "fire", id: fire.id });
             reload().catch((caught: unknown) => setError(messageOf(caught)));
           }}
         />
@@ -104,6 +206,7 @@ export function EnvironmentalDetail({
   onSelectFinding: (id: string) => void;
 }) {
   const [findings, setFindings] = useState<FindingSummary[]>([]);
+  const [steps, setSteps] = useState<SpillStep[]>([]);
   const [heading, setHeading] = useState("");
   const [body, setBody] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -115,15 +218,42 @@ export function EnvironmentalDetail({
       setHeading(detail.obligation.title);
       setBody(`${detail.obligation.programArea}. Applies where: ${detail.obligation.applicabilityText}`);
       setFindings(detail.findings);
+      setSteps([]);
     } else if (selection.kind === "waste") {
       const detail = await api.wasteStream(session.token, selection.id);
       setHeading(detail.wasteStream.name);
       setBody(`Recorded waste distinction: ${detail.wasteStream.wasteKind}. SENTINEL stores that entry. It does not determine that a waste is hazardous.`);
       setFindings(detail.findings);
-    } else {
+      setSteps([]);
+    } else if (selection.kind === "spill") {
       const detail = await api.spill(session.token, selection.id);
       setHeading(detail.spill.description);
-      setBody(`Reported to ${detail.spill.reportedTo}. This record does not decide spill liability.`);
+      setBody(`Reported to ${detail.spill.reportedTo}. ${detail.spill.materialName ? `${detail.spill.materialName} is kept at ${detail.spill.storagePlace}. The safety data sheet is ${detail.spill.sheetPlace?.toLowerCase()}. ` : ""}Cleanup steps record what was done. They do not decide liability, and the sheet text is not stored.`);
+      setSteps(detail.steps);
+      setFindings(detail.findings);
+    } else if (selection.kind === "material") {
+      const detail = await api.material(session.token, selection.id);
+      setHeading(detail.material.name);
+      setBody(`Kept at ${detail.material.storagePlace}. The safety data sheet is ${detail.material.sheetPlace.toLowerCase()}. The sheet text is not stored.`);
+      setSteps([]);
+      setFindings(detail.findings);
+    } else if (selection.kind === "mishap") {
+      const detail = await api.mishap(session.token, selection.id);
+      setHeading(detail.mishap.narrative);
+      setBody(`${detail.mishap.personnelCategory}. ${detail.mishap.outcome}. ${detail.mishap.occurredOn}. ${detail.notice}${detail.clock ? ` ${detail.clock}` : ""}`);
+      setSteps([]);
+      setFindings(detail.findings);
+    } else if (selection.kind === "training") {
+      const detail = await api.trainingSession(session.token, selection.id);
+      setHeading(`${detail.session.topic} · ${detail.session.audience}`);
+      setBody(`${detail.session.basis} ${detail.session.headcount} people. Due ${detail.session.dueOn}.${detail.session.completedOn ? ` Completed ${detail.session.completedOn}.` : " Not completed."}`);
+      setSteps([]);
+      setFindings(detail.findings);
+    } else {
+      const detail = await api.wildlandFire(session.token, selection.id);
+      setHeading(`${detail.fire.kind} · ${detail.fire.place}`);
+      setBody(`${detail.fire.purpose} ${detail.fire.note} Occurred ${detail.fire.occurredOn}.`);
+      setSteps([]);
       setFindings(detail.findings);
     }
   }
@@ -137,6 +267,20 @@ export function EnvironmentalDetail({
       <h2 className="text-2xl font-semibold">{heading || "Environmental record"}</h2>
       <p className="mt-2">{body}</p>
       <p className="mt-2 text-sm text-stone-600">A finding from this record uses the same action path as an inspection finding.</p>
+      {steps.length > 0 ? (
+        <ol className="mt-3 space-y-1 text-sm">
+          {steps.map((step) => (
+            <li key={step.id}><span className="font-medium capitalize">{step.step}.</span> {step.note}</li>
+          ))}
+        </ol>
+      ) : null}
+      {safety && selection.kind === "spill" ? (
+        <SpillStepForm
+          token={session.token}
+          spillId={selection.id}
+          onCreated={() => reload().catch((caught: unknown) => setError(messageOf(caught)))}
+        />
+      ) : null}
       {error ? <p className="mt-2 text-sm text-red-800">{error}</p> : null}
       <ul className="mt-3 space-y-2">
         {findings.map((finding) => (
@@ -157,7 +301,15 @@ export function EnvironmentalDetail({
                 ? api.addFindingFromObligation(session.token, selection.id, originalText)
                 : selection.kind === "waste"
                   ? api.addFindingFromWaste(session.token, selection.id, originalText)
-                  : api.addFindingFromSpill(session.token, selection.id, originalText);
+                  : selection.kind === "spill"
+                    ? api.addFindingFromSpill(session.token, selection.id, originalText)
+                    : selection.kind === "material"
+                      ? api.addFindingFromMaterial(session.token, selection.id, originalText)
+                    : selection.kind === "mishap"
+                      ? api.addFindingFromMishap(session.token, selection.id, originalText)
+                      : selection.kind === "training"
+                        ? api.addFindingFromTraining(session.token, selection.id, originalText)
+                        : api.addFindingFromFire(session.token, selection.id, originalText);
             return saved.then((finding) => {
               onSelectFinding(finding.id);
               return reload();
@@ -278,20 +430,160 @@ function WasteForm({
   );
 }
 
-function SpillForm({ token, onCreated }: { token: string; onCreated: (spill: Spill) => void }) {
-  const [description, setDescription] = useState("");
-  const [reportedTo, setReportedTo] = useState("");
+function MaterialForm({ token, onCreated }: { token: string; onCreated: (material: HazardousMaterial) => void }) {
+  const [name, setName] = useState("");
+  const [storagePlace, setStoragePlace] = useState("");
+  const [sheetPlace, setSheetPlace] = useState("");
   const [error, setError] = useState<string | null>(null);
   return (
-    <form className="space-y-2" onSubmit={(event) => submit(event, () => api.createSpill(token, description, reportedTo).then(onCreated), setError)}>
+    <form className="mb-4 space-y-2" onSubmit={(event) => submit(event, () => api.createMaterial(token, name, storagePlace, sheetPlace).then(onCreated), setError)}>
+      <h3 className="font-medium">Record a hazardous material</h3>
+      <Field label="Name" value={name} onChange={setName} />
+      <Field label="Where it is kept" value={storagePlace} onChange={setStoragePlace} />
+      <Field label="Where the safety data sheet is posted" value={sheetPlace} onChange={setSheetPlace} />
+      <p className="text-sm text-stone-600">Record the place. The sheet text is not stored.</p>
+      {error ? <p className="text-sm text-red-800">{error}</p> : null}
+      <button className="rounded bg-stone-900 px-3 py-1 text-sm text-white" type="submit">Save material</button>
+    </form>
+  );
+}
+
+function SpillForm({
+  token,
+  materials,
+  onCreated,
+}: {
+  token: string;
+  materials: HazardousMaterial[];
+  onCreated: (spill: Spill) => void;
+}) {
+  const [description, setDescription] = useState("");
+  const [reportedTo, setReportedTo] = useState("");
+  const [materialId, setMaterialId] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  return (
+    <form className="space-y-2" onSubmit={(event) => submit(event, () => api.createSpill(token, description, reportedTo, materialId || null).then(onCreated), setError)}>
       <h3 className="font-medium">Record a spill</h3>
       <Field label="What happened" value={description} onChange={setDescription} />
       <Field label="Reported to" value={reportedTo} onChange={setReportedTo} />
+      <label className="block text-sm font-medium">
+        Material, if it is already on the inventory
+        <select className="mt-1 w-full rounded border border-stone-300 bg-white px-2 py-1 font-normal" value={materialId} onChange={(event) => setMaterialId(event.target.value)}>
+          <option value="">None</option>
+          {materials.map((material) => (
+            <option key={material.id} value={material.id}>{material.name} · {material.storagePlace}</option>
+          ))}
+        </select>
+      </label>
       <p className="text-sm text-stone-600">The publication calls for immediate reporting to the garrison or the on-scene coordinator. This field stores that report. It does not send one.</p>
       {error ? <p className="text-sm text-red-800">{error}</p> : null}
       <button className="rounded bg-stone-900 px-3 py-1 text-sm text-white" type="submit">
         Save spill
       </button>
+    </form>
+  );
+}
+
+function MishapForm({ token, onCreated }: { token: string; onCreated: (mishap: Mishap) => void }) {
+  const [occurredOn, setOccurredOn] = useState("2026-11-15");
+  const [narrative, setNarrative] = useState("");
+  const [personnelCategory, setPersonnelCategory] = useState("Soldier");
+  const [outcome, setOutcome] = useState("near miss");
+  const [error, setError] = useState<string | null>(null);
+  return (
+    <form className="mb-4 space-y-2" onSubmit={(event) => submit(event, () => api.createMishap(token, occurredOn, narrative, personnelCategory, outcome).then((body) => onCreated(body.mishap)), setError)}>
+      <h3 className="font-medium">Record a mishap</h3>
+      <Field label="Date" value={occurredOn} onChange={setOccurredOn} />
+      <Field label="What happened, with no name and no diagnosis" value={narrative} onChange={setNarrative} />
+      <label className="block text-sm font-medium">
+        Who was affected
+        <select className="mt-1 w-full rounded border border-stone-300 bg-white px-2 py-1 font-normal" value={personnelCategory} onChange={(event) => setPersonnelCategory(event.target.value)}>
+          {["Soldier", "DA civilian", "contractor", "public", "other"].map((item) => <option key={item}>{item}</option>)}
+        </select>
+      </label>
+      <label className="block text-sm font-medium">
+        Outcome
+        <select className="mt-1 w-full rounded border border-stone-300 bg-white px-2 py-1 font-normal" value={outcome} onChange={(event) => setOutcome(event.target.value)}>
+          {["near miss", "injury reported", "occupational illness reported", "property damage", "environmental damage"].map((item) => <option key={item}>{item}</option>)}
+        </select>
+      </label>
+      {error ? <p className="text-sm text-red-800">{error}</p> : null}
+      <button className="rounded bg-stone-900 px-3 py-1 text-sm text-white" type="submit">Save mishap</button>
+    </form>
+  );
+}
+
+function TrainingForm({ token, onCreated }: { token: string; onCreated: (session: TrainingSession) => void }) {
+  const [topic, setTopic] = useState("Hazard communication");
+  const [audience, setAudience] = useState("");
+  const [dueOn, setDueOn] = useState("2026-12-15");
+  const [headcount, setHeadcount] = useState("1");
+  const [error, setError] = useState<string | null>(null);
+  return (
+    <form
+      className="mb-4 space-y-2"
+      onSubmit={(event) => submit(event, () => api.createTraining(token, topic, audience, dueOn, Number(headcount), null).then(onCreated), setError)}
+    >
+      <h3 className="font-medium">Record training</h3>
+      <label className="block text-sm font-medium">
+        Topic
+        <select className="mt-1 w-full rounded border border-stone-300 bg-white px-2 py-1 font-normal" value={topic} onChange={(event) => setTopic(event.target.value)}>
+          {["Unit safety officer", "Hazard communication", "Spill response", "Wildland fire"].map((item) => <option key={item}>{item}</option>)}
+        </select>
+      </label>
+      <Field label="Audience, by shop or duty" value={audience} onChange={setAudience} />
+      <Field label="Due" value={dueOn} onChange={setDueOn} />
+      <Field label="Headcount" value={headcount} onChange={setHeadcount} />
+      {error ? <p className="text-sm text-red-800">{error}</p> : null}
+      <button className="rounded bg-stone-900 px-3 py-1 text-sm text-white" type="submit">Save training</button>
+    </form>
+  );
+}
+
+function FireForm({ token, onCreated }: { token: string; onCreated: (fire: WildlandFire) => void }) {
+  const [kind, setKind] = useState("wildfire");
+  const [place, setPlace] = useState("");
+  const [occurredOn, setOccurredOn] = useState("2026-11-15");
+  const [purpose, setPurpose] = useState("");
+  const [note, setNote] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  return (
+    <form className="mb-4 space-y-2" onSubmit={(event) => submit(event, () => api.createWildlandFire(token, kind, place, occurredOn, purpose, note).then(onCreated), setError)}>
+      <h3 className="font-medium">Record a wildland fire</h3>
+      <label className="block text-sm font-medium">
+        Kind
+        <select className="mt-1 w-full rounded border border-stone-300 bg-white px-2 py-1 font-normal" value={kind} onChange={(event) => setKind(event.target.value)}>
+          <option value="wildfire">Wildfire</option>
+          <option value="prescribed burn">Prescribed burn</option>
+          <option value="remediation">Remediation after a fire</option>
+        </select>
+      </label>
+      <Field label="Place" value={place} onChange={setPlace} />
+      <Field label="Date" value={occurredOn} onChange={setOccurredOn} />
+      <Field label="Purpose" value={purpose} onChange={setPurpose} />
+      <Field label="What is known" value={note} onChange={setNote} />
+      {error ? <p className="text-sm text-red-800">{error}</p> : null}
+      <button className="rounded bg-stone-900 px-3 py-1 text-sm text-white" type="submit">Save fire record</button>
+    </form>
+  );
+}
+
+function SpillStepForm({ token, spillId, onCreated }: { token: string; spillId: string; onCreated: () => void }) {
+  const [step, setStep] = useState("cleaned up");
+  const [note, setNote] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  return (
+    <form className="mt-3 space-y-2" onSubmit={(event) => submit(event, () => api.addSpillStep(token, spillId, step, note).then(() => { setNote(""); onCreated(); }), setError)}>
+      <h3 className="font-medium">Cleanup step</h3>
+      <label className="block text-sm font-medium">
+        Step
+        <select className="mt-1 w-full rounded border border-stone-300 bg-white px-2 py-1 font-normal" value={step} onChange={(event) => setStep(event.target.value)}>
+          {["reported", "contained", "cleaned up", "waste held"].map((item) => <option key={item}>{item}</option>)}
+        </select>
+      </label>
+      <Field label="What was done" value={note} onChange={setNote} />
+      {error ? <p className="text-sm text-red-800">{error}</p> : null}
+      <button className="rounded bg-stone-900 px-3 py-1 text-sm text-white" type="submit">Save step</button>
     </form>
   );
 }

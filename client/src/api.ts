@@ -16,8 +16,18 @@ export type WorkFinding = {
   actionStatus: string | null;
   actionDescription: string | null;
   actionOwnerUserId: string | null;
+  organizationName: string | null;
+  shopName: string | null;
   step: "assess" | "decide" | "assign" | "verify" | "close" | "done";
 };
+
+export type OverdueAction = { id: string; findingId: string; description: string; dueOn: string };
+
+export type CampCount = { name: string; steps: Record<string, number>; overdueActions: number };
+
+export type LibraryEntry = { id: string; kind: "chemical" | "job"; name: string; note: string };
+
+export type ChecklistTemplate = { id: string; title: string; shopName: string; items: Array<{ id: string; text: string }> };
 
 export type Inspection = {
   id: string;
@@ -61,6 +71,46 @@ export type Spill = {
   id: string;
   description: string;
   reportedTo: string;
+  materialId?: string | null;
+  materialName?: string | null;
+  storagePlace?: string | null;
+  sheetPlace?: string | null;
+};
+
+export type HazardousMaterial = {
+  id: string;
+  name: string;
+  storagePlace: string;
+  sheetPlace: string;
+};
+
+export type SpillStep = { id: string; step: string; note: string };
+
+export type Mishap = {
+  id: string;
+  occurredOn: string;
+  narrative: string;
+  personnelCategory: string;
+  outcome: string;
+};
+
+export type TrainingSession = {
+  id: string;
+  topic: string;
+  audience: string;
+  dueOn: string;
+  completedOn: string | null;
+  headcount: number;
+  basis: string;
+};
+
+export type WildlandFire = {
+  id: string;
+  kind: string;
+  place: string;
+  occurredOn: string;
+  purpose: string;
+  note: string;
 };
 
 export type AsohmsObjective = {
@@ -118,6 +168,10 @@ export type CouncilReport = {
   obligations: number;
   wasteStreams: number;
   spills: number;
+  materials: number;
+  mishaps: number;
+  training: number;
+  wildlandFires: number;
   records: {
     findings: CouncilRecord[];
     actions: CouncilRecord[];
@@ -125,6 +179,10 @@ export type CouncilReport = {
     obligations: CouncilRecord[];
     wasteStreams: CouncilRecord[];
     spills: CouncilRecord[];
+    materials: CouncilRecord[];
+    mishaps: CouncilRecord[];
+    training: CouncilRecord[];
+    wildlandFires: CouncilRecord[];
     exposureGroups: CouncilRecord[];
   };
   notStored: Array<{ item: string; reason: string }>;
@@ -205,6 +263,7 @@ export type FindingChain = {
   actions: ActionRecord[];
   evidence: EvidenceRecord[];
   verifications: Verification[];
+  authorizations: Array<{ id: string; taskName: string; note: string; authorizedBy: string; createdAt: string }>;
 };
 
 export type OrgUser = {
@@ -234,7 +293,27 @@ export const api = {
   signIn: (email: string, password: string) =>
     request<Session>("/session", null, "POST", { email, password }),
   inspections: (token: string) => request<{ inspections: Inspection[] }>("/inspections", token),
-  work: (token: string) => request<{ inspections: Inspection[]; findings: WorkFinding[] }>("/work", token),
+  work: (token: string) =>
+    request<{ inspections: Inspection[]; findings: WorkFinding[]; overdue: OverdueAction[] }>("/work", token),
+  comparison: (token: string) => request<{ notice: string; camps: CampCount[] }>("/comparison", token),
+  organizations: (token: string) => request<{ organizations: Array<{ id: string; name: string }> }>("/organizations", token),
+  checklists: (token: string) => request<{ checklists: ChecklistTemplate[] }>("/checklists", token),
+  library: (token: string) => request<{ notice: string; entries: LibraryEntry[] }>("/library", token),
+  checklistWalk: (
+    token: string,
+    checklistId: string,
+    inspectedOn: string,
+    organizationId: string,
+    answers: Array<{ itemId: string; passed: boolean }>,
+  ) =>
+    request<{ inspectionId: string; findings: Array<{ id: string; originalText: string }> }>(
+      "/checklist-walks",
+      token,
+      "POST",
+      { checklistId, inspectedOn, organizationId, answers },
+    ),
+  authorizeWork: (token: string, findingId: string, taskName: string, note: string) =>
+    request<{ id: string }>(`/findings/${findingId}/authorizations`, token, "POST", { taskName, note }),
   inspection: (token: string, id: string) =>
     request<{ inspection: Inspection; observations: Observation[]; findings: FindingSummary[] }>(
       `/inspections/${id}`,
@@ -319,9 +398,39 @@ export const api = {
   addFindingFromWaste: (token: string, wasteStreamId: string, originalText: string) =>
     request<FindingSummary>(`/waste-streams/${wasteStreamId}/findings`, token, "POST", { originalText }),
   spills: (token: string) => request<{ spills: Spill[] }>("/spills", token),
-  spill: (token: string, id: string) => request<{ spill: Spill; findings: FindingSummary[] }>(`/spills/${id}`, token),
-  createSpill: (token: string, description: string, reportedTo: string) =>
-    request<Spill>("/spills", token, "POST", { description, reportedTo }),
+  spill: (token: string, id: string) => request<{ spill: Spill; steps: SpillStep[]; findings: FindingSummary[] }>(`/spills/${id}`, token),
+  addSpillStep: (token: string, spillId: string, step: string, note: string) =>
+    request<SpillStep>(`/spills/${spillId}/steps`, token, "POST", { step, note }),
+  mishaps: (token: string) => request<{ notice: string; mishaps: Mishap[] }>("/mishaps", token),
+  mishap: (token: string, id: string) =>
+    request<{ notice: string; clock: string | null; mishap: Mishap; findings: FindingSummary[] }>(`/mishaps/${id}`, token),
+  createMishap: (token: string, occurredOn: string, narrative: string, personnelCategory: string, outcome: string) =>
+    request<{ mishap: Mishap }>("/mishaps", token, "POST", { occurredOn, narrative, personnelCategory, outcome }),
+  addFindingFromMishap: (token: string, mishapId: string, originalText: string) =>
+    request<FindingSummary>(`/mishaps/${mishapId}/findings`, token, "POST", { originalText }),
+  training: (token: string) => request<{ sessions: TrainingSession[] }>("/training", token),
+  trainingSession: (token: string, id: string) =>
+    request<{ session: TrainingSession; findings: FindingSummary[] }>(`/training/${id}`, token),
+  createTraining: (token: string, topic: string, audience: string, dueOn: string, headcount: number, completedOn: string | null) =>
+    request<TrainingSession>("/training", token, "POST", { topic, audience, dueOn, headcount, completedOn }),
+  addFindingFromTraining: (token: string, trainingId: string, originalText: string) =>
+    request<FindingSummary>(`/training/${trainingId}/findings`, token, "POST", { originalText }),
+  wildlandFires: (token: string) => request<{ notice: string; fires: WildlandFire[] }>("/wildland-fires", token),
+  wildlandFire: (token: string, id: string) =>
+    request<{ fire: WildlandFire; findings: FindingSummary[] }>(`/wildland-fires/${id}`, token),
+  createWildlandFire: (token: string, kind: string, place: string, occurredOn: string, purpose: string, note: string) =>
+    request<WildlandFire>("/wildland-fires", token, "POST", { kind, place, occurredOn, purpose, note }),
+  addFindingFromFire: (token: string, fireId: string, originalText: string) =>
+    request<FindingSummary>(`/wildland-fires/${fireId}/findings`, token, "POST", { originalText }),
+  materials: (token: string) => request<{ notice: string; materials: HazardousMaterial[] }>("/materials", token),
+  material: (token: string, id: string) =>
+    request<{ material: HazardousMaterial; findings: FindingSummary[] }>(`/materials/${id}`, token),
+  createMaterial: (token: string, name: string, storagePlace: string, sheetPlace: string) =>
+    request<HazardousMaterial>("/materials", token, "POST", { name, storagePlace, sheetPlace }),
+  addFindingFromMaterial: (token: string, materialId: string, originalText: string) =>
+    request<FindingSummary>(`/materials/${materialId}/findings`, token, "POST", { originalText }),
+  createSpill: (token: string, description: string, reportedTo: string, materialId?: string | null) =>
+    request<Spill>("/spills", token, "POST", { description, reportedTo, ...(materialId ? { materialId } : {}) }),
   addFindingFromSpill: (token: string, spillId: string, originalText: string) =>
     request<FindingSummary>(`/spills/${spillId}/findings`, token, "POST", { originalText }),
   council: (token: string) => request<CouncilReport>("/council", token),

@@ -65,9 +65,9 @@ Closing a corrective action writes an event on the action and an event on the fi
 
 ## Reserved for later, not built in the first milestone
 
-These names are here so the core tables do not have to be broken apart later. Obligation, waste stream, spill, exposure group, the ASOHMS practice tables, and the AI tables are now used. Mishap stays empty.
+These names are here so the core tables do not have to be broken apart later. Obligation, waste stream, spill, exposure group, the ASOHMS practice tables, and the AI tables are now used. A mishap row is in use without a class column.
 
-- **mishap.** Class code, once DA Pam 385-40 is transcribed. Link to hazard and to finding.
+- **mishap.** In use. Date, narrative, personnel category, and outcome. There is no class column until DA Pam 385-40 thresholds are transcribed, and no name, diagnosis, or OSHA rate. A finding can be opened from the mishap. Training is a topic, an audience, a due date, and a headcount. It is not a qualification. A spill can record the steps reported, contained, cleaned up, and waste held. A hazardous-material row names the product, where it is kept, and where the safety data sheet is posted. The sheet text is not stored. A wildland-fire row is a wildfire, a prescribed burn, or remediation after the fire. It does not store an ignition plan.
 - **obligation**, **waste_stream**, **spill.** These records are in use. An obligation stores the duty and where it applies. A waste stream stores the recorded distinction between subtitle C waste and other waste. A spill stores what happened and who it was reported to. Each one can open a finding on the existing action path. There is no column for a compliance determination. A spill does not point at a mishap until that record exists.
 - **exposure_group.** In use. Agent, shop, control method, headcount, and exam-completion percent. A field that is not one of those five is rejected. No person-level result column is part of the design.
 - **asohms_objective.** In use. The six internal codes and the source labels from the [mapping note](03-asohms-mapping.md).
