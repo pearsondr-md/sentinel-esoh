@@ -731,6 +731,50 @@ describe("Shop 2 workflow", () => {
     assert.equal(accepted.matrixCell, "IA");
   });
 
+  it("records a program audit as met or not met and refuses a score", async () => {
+    const safety = await login("shop2.safety@camp-sentinel.example");
+    const commander = await login("shop2.commander@camp-sentinel.example");
+    const otherUnit = await login("unit2.safety@camp-sentinel.example");
+    const employee = await login("shop2.employee@camp-sentinel.example");
+    const lines = await api(safety, "GET", "/audit-lines");
+    assert.match(lines.notice, /not a score/);
+    const answers = (lines.lines as Array<{ id: string }>).map((line) => ({
+      lineId: line.id,
+      result: line.id === "train" ? "not met" : "met",
+    }));
+    await api(employee, "POST", "/audits", { title: "Employee look", auditedOn: "2026-11-15", answers }, 403);
+    await api(safety, "POST", "/audits", { title: "Scored look", auditedOn: "2026-11-15", answers, score: 80 }, 400);
+    const created = await api(commander, "POST", "/audits", {
+      title: "Commander look at Shop 2",
+      auditedOn: "2026-11-15",
+      answers,
+    });
+    assert.equal(created.audit.notMet, 1);
+    assert.equal("score" in created, false);
+    assert.equal("matrixLevel" in created.audit, false);
+    const finding = (created.findings as Array<{ id: string; originalText: string }>)[0];
+    assert.equal(finding.originalText, "Safety training for this shop has a due date and a headcount.");
+    await api(otherUnit, "GET", `/audits/${created.audit.id}`, undefined, 404);
+    const held = await api(safety, "GET", `/audits/${created.audit.id}`);
+    assert.equal((held.lines as Array<{ text: string; result: string; findingId: string | null }>).find((line) => line.result === "not met")?.findingId, finding.id);
+    const comparison = await api(safety, "GET", "/comparison");
+    assert.equal(JSON.stringify(comparison).includes(finding.originalText), false);
+    assert.equal((comparison.camps as Array<{ name: string }>).some((camp) => camp.name === "Camp Redwood"), true);
+
+    const inspection = await api(safety, "POST", "/inspections", { shopName: "Shop 2", inspectedOn: "2026-11-15" });
+    const observation = await api(safety, "POST", `/inspections/${inspection.id}/observations`, { text: "Commander estimate." });
+    const opened = await api(safety, "POST", `/observations/${observation.id}/findings`, { originalText: "The commander named this hazard." });
+    const hazard = await api(commander, "POST", `/findings/${opened.id}/hazards`, { description: "Oil on the bay floor." });
+    const estimate = await api(commander, "POST", `/hazards/${hazard.id}/assessments`, {
+      phase: "initial",
+      probabilityCode: "C",
+      severityCode: "III",
+      matrixLevel: "low",
+    });
+    assert.equal(estimate.matrixLevel, lookupMatrix(MATRIX_CELLS, "C", "III").matrixLevel);
+    assert.notEqual(estimate.matrixLevel, "low");
+  });
+
   async function login(email: string): Promise<string> {
     const response = await fetch(`${base}/session`, {
       method: "POST",

@@ -406,6 +406,26 @@ CREATE TABLE IF NOT EXISTS ai_exchange (
   created_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS program_audit (
+  id TEXT PRIMARY KEY,
+  organization_id TEXT NOT NULL REFERENCES organization(id),
+  title TEXT NOT NULL,
+  audited_on TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  created_by TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS program_audit_line (
+  id TEXT PRIMARY KEY,
+  organization_id TEXT NOT NULL REFERENCES organization(id),
+  audit_id TEXT NOT NULL REFERENCES program_audit(id),
+  line_text TEXT NOT NULL,
+  result TEXT NOT NULL,
+  finding_id TEXT REFERENCES finding(id),
+  created_at TEXT NOT NULL,
+  created_by TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS inspection_line (
   id TEXT PRIMARY KEY,
   organization_id TEXT NOT NULL REFERENCES organization(id),

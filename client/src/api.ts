@@ -18,8 +18,20 @@ export type WorkFinding = {
   actionOwnerUserId: string | null;
   organizationName: string | null;
   shopName: string | null;
+  residualLevel: string | null;
   step: "assess" | "decide" | "assign" | "verify" | "close" | "done";
 };
+
+export type ProgramAuditSummary = {
+  id: string;
+  title: string;
+  auditedOn: string;
+  met: number;
+  notMet: number;
+  notLookedAt: number;
+};
+
+export type AuditLine = { id: string; objective?: string; text: string; result?: string; findingId?: string | null };
 
 export type OverdueAction = { id: string; findingId: string; description: string; dueOn: string };
 
@@ -169,6 +181,7 @@ export type CouncilReport = {
   wasteStreams: number;
   spills: number;
   materials: number;
+  audits: number;
   mishaps: number;
   training: number;
   wildlandFires: number;
@@ -180,6 +193,7 @@ export type CouncilReport = {
     wasteStreams: CouncilRecord[];
     spills: CouncilRecord[];
     materials: CouncilRecord[];
+    audits: CouncilRecord[];
     mishaps: CouncilRecord[];
     training: CouncilRecord[];
     wildlandFires: CouncilRecord[];
@@ -433,6 +447,17 @@ export const api = {
     request<Spill>("/spills", token, "POST", { description, reportedTo, ...(materialId ? { materialId } : {}) }),
   addFindingFromSpill: (token: string, spillId: string, originalText: string) =>
     request<FindingSummary>(`/spills/${spillId}/findings`, token, "POST", { originalText }),
+  auditLines: (token: string) => request<{ notice: string; lines: AuditLine[] }>("/audit-lines", token),
+  audits: (token: string) => request<{ notice: string; audits: ProgramAuditSummary[] }>("/audits", token),
+  audit: (token: string, id: string) =>
+    request<{ notice: string; audit: ProgramAuditSummary; lines: AuditLine[] }>(`/audits/${id}`, token),
+  createAudit: (token: string, title: string, auditedOn: string, answers: Array<{ lineId: string; result: string }>) =>
+    request<{ notice: string; audit: ProgramAuditSummary; findings: Array<{ id: string; originalText: string }> }>(
+      "/audits",
+      token,
+      "POST",
+      { title, auditedOn, answers },
+    ),
   council: (token: string) => request<CouncilReport>("/council", token),
   ask: (token: string, question: string, findingId: string | null) =>
     request<Answer>("/questions", token, "POST", { question, ...(findingId ? { findingId } : {}) }),

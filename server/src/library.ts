@@ -41,6 +41,18 @@ export const CHECKLISTS: Checklist[] = [
   },
 ];
 
+export const AUDIT_LINES = [
+  { id: "lead", objective: "Leadership", text: "Leaders have looked at this safety program during the year." },
+  { id: "mishap", objective: "Mishaps", text: "Mishaps and near misses are written down." },
+  { id: "train", objective: "Training", text: "Safety training for this shop has a due date and a headcount." },
+  { id: "inspect", objective: "Inspections", text: "Hazards are looked for on a schedule." },
+  { id: "hazard", objective: "Hazards", text: "A hazard on the books has a probability, a severity, and a matrix result." },
+  { id: "health", objective: "Health", text: "Exposure is recorded as a headcount, with no name and no diagnosis." },
+] as const;
+
+export const AUDIT_NOTICE =
+  "An audit records what was looked at under the six capability objectives. The counts are not a score, not a risk level, and not an official Army assessment.";
+
 export type LibraryEntry = { id: string; kind: "chemical" | "job"; name: string; note: string };
 
 export const LIBRARY: LibraryEntry[] = [
