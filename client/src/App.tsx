@@ -210,7 +210,7 @@ function SignIn({ onSignIn }: { onSignIn: (session: Session) => void }) {
   );
 }
 
-type Place = "home" | "council" | "asohms" | "ask" | "environment" | "exposure" | "reports";
+type Place = "home" | "work" | "council" | "asohms" | "ask" | "environment" | "exposure" | "reports";
 
 function Workspace({ session }: { session: Session }) {
   const [reports, setReports] = useState<EmployeeReport[]>([]);
@@ -270,6 +270,7 @@ function Workspace({ session }: { session: Session }) {
         </button>
         {(
           [
+            ["work", "Work"],
             ["council", "Council"],
             ["asohms", "Practice notes"],
             ["ask", "Ask"],
@@ -299,7 +300,9 @@ function Workspace({ session }: { session: Session }) {
       ) : inspectionId ? (
         <InspectionDetail session={session} inspectionId={inspectionId} onSelectFinding={openFinding} onBack={closeDetail} />
       ) : place === "council" ? (
-        <CouncilView
+        <div className="space-y-6">
+          {session.roles.includes("safety officer") || session.roles.includes("commander") ? <CampCounts token={session.token} /> : null}
+          <CouncilView
           session={session}
           onOpenFinding={(id) => openFinding(id, "council")}
           onOpenInspection={(id) => {
@@ -319,10 +322,11 @@ function Workspace({ session }: { session: Session }) {
             setPlace("exposure");
           }}
         />
+        </div>
       ) : place === "asohms" ? (
         <AsohmsView session={session} />
       ) : place === "ask" ? (
-        <AskView session={session} findingId={null} />
+        <AskView session={session} findingId={null} onOpenFinding={(id) => openFinding(id, "ask")} />
       ) : place === "environment" ? (
         <div className="space-y-6">
           <EnvironmentalLists session={session} selected={environmental} onSelect={setEnvironmental} />
@@ -382,8 +386,23 @@ function Workspace({ session }: { session: Session }) {
           </section>
           {reportId ? <ReportDetail session={session} reportId={reportId} onSelectFinding={openFinding} /> : null}
         </div>
+      ) : place === "work" ? (
+        <Home
+          mode="picture"
+          session={session}
+          work={work}
+          reports={reports}
+          onOpenInspection={(id) => setInspectionId(id)}
+          onOpenFinding={openFinding}
+          onOpenReport={(id) => {
+            setReportId(id);
+            setPlace("reports");
+          }}
+          onCreated={() => refresh().catch((caught: unknown) => setError(messageOf(caught)))}
+        />
       ) : (
         <Home
+          mode="next"
           session={session}
           work={work}
           reports={reports}
@@ -401,6 +420,7 @@ function Workspace({ session }: { session: Session }) {
 }
 
 function Home({
+  mode,
   session,
   work,
   reports,
@@ -409,6 +429,7 @@ function Home({
   onOpenReport,
   onCreated,
 }: {
+  mode: "next" | "picture";
   session: Session;
   work: { inspections: Inspection[]; findings: WorkFinding[]; overdue: OverdueAction[] };
   reports: EmployeeReport[];
@@ -449,7 +470,51 @@ function Home({
     },
   ];
 
-  const opened = windowKey ? overviewWindow(windowKey, work, identify, reports) : null;
+  const opened = mode === "picture" && windowKey ? overviewWindow(windowKey, work, identify, reports) : null;
+  const overdueIds = new Set(work.overdue.map((action) => action.findingId));
+  const next = nextTask(lanes, overdueIds);
+  const nextInspection = safety && !next ? identify[0] : undefined;
+  if (mode === "next") {
+    return (
+      <div className="space-y-5">
+        <section className="panel">
+          <h2 className="text-2xl font-semibold">{session.displayName}</h2>
+          <p className="mt-2 max-w-2xl text-[#5c5348]">
+            This is the record that has to move. Past-due work stays above it. Charts and camp counts are on their own pages.
+          </p>
+          <div className="mt-4 space-y-2">
+            {work.overdue.map((action) => (
+              <button key={action.id} className="task" type="button" onClick={() => onOpenFinding(action.findingId)}>
+                <span className="text-xs font-semibold tracking-wide text-[#8a6a32]">Past due · {action.dueOn}</span>
+                <span className="mt-1 block font-medium">{action.description}</span>
+                <span className="mt-1 block text-sm text-[#6d6256]">Open the finding.</span>
+              </button>
+            ))}
+            {next ? (
+              <button className="task" type="button" onClick={() => onOpenFinding(next.id)}>
+                <span className="text-xs font-semibold tracking-wide text-[#8a6a32]">{stepTitle(next.step)} · {stepWho(next.step)}</span>
+                <span className="mt-1 block font-medium">{next.originalText}</span>
+                <span className="mt-1 block text-sm text-[#6d6256]">This is the record that has to move.</span>
+              </button>
+            ) : null}
+            {nextInspection ? (
+              <button className="task" type="button" onClick={() => onOpenInspection(nextInspection.id)}>
+                <span className="text-xs font-semibold tracking-wide text-[#8a6a32]">Identify · Safety officer</span>
+                <span className="mt-1 block font-medium">{nextInspection.shopName}</span>
+                <span className="mt-1 block text-sm text-[#6d6256]">{nextInspection.inspectedOn}. This inspection has no finding yet.</span>
+              </button>
+            ) : null}
+            {!next && !nextInspection && work.overdue.length === 0 ? (
+              <p className="text-sm text-[#6d6256]">Nothing is waiting on this account.</p>
+            ) : null}
+          </div>
+        </section>
+        {session.roles.includes("safety officer") || session.roles.includes("commander") ? (
+          <ProgramAudit session={session} onOpenFinding={onOpenFinding} />
+        ) : null}
+      </div>
+    );
+  }
   if (opened) {
     return (
       <section className="space-y-4">
@@ -486,35 +551,10 @@ function Home({
   return (
     <div className="space-y-5">
       <section className="panel">
-        <h2 className="text-2xl font-semibold">{session.displayName}</h2>
+        <h2 className="text-2xl font-semibold">The same records, counted</h2>
         <p className="mt-2 max-w-2xl text-[#5c5348]">
-          Start with the task. The charts are the same records, counted. A count across camps is not a score.
+          A bar opens the findings behind it. A count across camps is on Council, and it is not a score.
         </p>
-        <div className="mt-4 space-y-2">
-          <h3 className="font-semibold">Your tasks</h3>
-          {work.overdue.map((action) => (
-            <button key={action.id} className="task" type="button" onClick={() => onOpenFinding(action.findingId)}>
-              <span className="text-xs font-semibold tracking-wide text-[#8a6a32]">Past due · {action.dueOn}</span>
-              <span className="mt-1 block font-medium">{action.description}</span>
-              <span className="mt-1 block text-sm text-[#6d6256]">Open the finding.</span>
-            </button>
-          ))}
-          {lanes
-            .filter((lane) => lane.active)
-            .flatMap((lane) => lane.findings)
-            .filter((finding) => !work.overdue.some((action) => action.findingId === finding.id))
-            .slice(0, 4)
-            .map((finding) => (
-              <button key={finding.id} className="task" type="button" onClick={() => onOpenFinding(finding.id)}>
-                <span className="text-xs font-semibold tracking-wide text-[#8a6a32]">{stepTitle(finding.step)}</span>
-                <span className="mt-1 block font-medium">{finding.originalText}</span>
-                <span className="mt-1 block text-sm text-[#6d6256]">Open this step.</span>
-              </button>
-            ))}
-          {work.overdue.length === 0 && lanes.filter((lane) => lane.active).every((lane) => lane.findings.length === 0) ? (
-            <p className="text-sm text-[#6d6256]">Nothing is waiting on this account.</p>
-          ) : null}
-        </div>
         <div className="mt-5 overflow-x-auto">
           <Flow
             onSelect={setWindowKey}
@@ -529,9 +569,6 @@ function Home({
           />
         </div>
       </section>
-      {session.roles.includes("safety officer") || session.roles.includes("commander") ? (
-        <ProgramAudit session={session} onOpenFinding={onOpenFinding} />
-      ) : null}
       <div className="grid gap-4 lg:grid-cols-2">
         <section className="panel">
           <h3 className="font-semibold">Findings by step</h3>
@@ -568,7 +605,6 @@ function Home({
       {session.roles.includes("safety officer") || session.roles.includes("commander") ? (
         <ResidualLevels findings={work.findings} onOpen={(key) => setWindowKey(key)} />
       ) : null}
-      {session.roles.includes("safety officer") || session.roles.includes("commander") ? <CampCounts token={session.token} /> : null}
       <div className="grid gap-4 lg:grid-cols-2">
         {lanes.map((lane) => (
           <section key={lane.role} className={`panel ${lane.active ? "ring-2 ring-[#e4c27a]" : ""}`}>
@@ -753,7 +789,7 @@ function SiteCounts({ findings, onOpen }: { findings: WorkFinding[]; onOpen: (ke
 }
 
 function CampCounts({ token }: { token: string }) {
-  const [camps, setCamps] = useState<Array<{ name: string; steps: Record<string, number>; overdueActions: number }>>([]);
+  const [camps, setCamps] = useState<Array<{ name: string; steps: Record<string, number>; overdueActions: number; residual?: Record<string, number> }>>([]);
   const [notice, setNotice] = useState("");
   useEffect(() => {
     api.comparison(token).then((body) => {
@@ -763,6 +799,7 @@ function CampCounts({ token }: { token: string }) {
   }, [token]);
   if (camps.length === 0) return null;
   const steps = ["assess", "decide", "assign", "verify", "close", "done"];
+  const levels = ["extremely high", "high", "medium", "low"];
   return (
     <section className="panel">
       <h3 className="font-semibold">Camps</h3>
@@ -776,6 +813,9 @@ function CampCounts({ token }: { token: string }) {
                 <th key={step} className="px-2 py-2 font-medium capitalize">{step === "done" ? "Closed" : step}</th>
               ))}
               <th className="px-2 py-2 font-medium">Past due</th>
+              {levels.map((level) => (
+                <th key={level} className="px-2 py-2 font-medium capitalize">{level}</th>
+              ))}
             </tr>
           </thead>
           <tbody>
@@ -786,6 +826,9 @@ function CampCounts({ token }: { token: string }) {
                   <td key={step} className="px-2 py-2 tabular-nums">{camp.steps[step] ?? 0}</td>
                 ))}
                 <td className="px-2 py-2 tabular-nums">{camp.overdueActions}</td>
+                {levels.map((level) => (
+                  <td key={level} className="px-2 py-2 tabular-nums">{camp.residual?.[level] ?? 0}</td>
+                ))}
               </tr>
             ))}
           </tbody>
@@ -1021,6 +1064,27 @@ function FindingRecord({ session, findingId, onBack }: { session: Session; findi
         <p className="text-xs font-semibold tracking-wide text-[#8a6a32]">Now</p>
         <h2 className="mt-1 text-xl font-semibold">{step === "done" ? "Closed" : stepLabel(step)}</h2>
         <p className="mt-1 text-sm text-[#5c5348]">{stepGuide(step)}</p>
+        {residual ? (
+          <p className="mt-3">
+            Residual risk is <strong>{residual.matrixLevel}</strong>, cell {residual.matrixCell}. {residual.doctrineRef}. This word stays as looked up.
+          </p>
+        ) : null}
+        {chain.decisions[0] ? (
+          <p className="mt-2">
+            Decision: {chain.decisions[0].decision}. Authority:{" "}
+            {chain.authorityChecks.find((item) => item.decisionId === chain.decisions[0].id)?.result ?? "not recorded"}.
+            {chain.authorityChecks.find((item) => item.decisionId === chain.decisions[0].id)?.result === "blocked" && chain.decisions[0].decision === "accept"
+              ? " Acceptance was not granted. The action can still be assigned."
+              : ""}
+          </p>
+        ) : null}
+        {step === "decide" && commander && residual ? (
+          <DecisionForm
+            token={session.token}
+            assessmentId={residual.id}
+            onCreated={() => reload().catch((caught: unknown) => setError(messageOf(caught)))}
+          />
+        ) : null}
       </section>
       <article className="panel">
         <h3 className="font-semibold">Identify</h3>
@@ -1107,12 +1171,8 @@ function FindingRecord({ session, findingId, onBack }: { session: Session; findi
             );
           })}
         </ul>
-        {step === "decide" && commander && residual ? (
-          <DecisionForm
-            token={session.token}
-            assessmentId={residual.id}
-            onCreated={() => reload().catch((caught: unknown) => setError(messageOf(caught)))}
-          />
+        {step === "decide" && commander && !residual ? (
+          <p className="mt-2 text-sm text-[#6d6256]">The residual estimate comes first. The decision uses the word the table returned.</p>
         ) : null}
       </article>
 
@@ -1211,7 +1271,7 @@ function FindingRecord({ session, findingId, onBack }: { session: Session; findi
       <details className="panel">
         <summary className="cursor-pointer font-semibold">Ask about this finding</summary>
         <div className="mt-4">
-          <AskView session={session} findingId={findingId} />
+          <AskView session={session} findingId={findingId} onOpenFinding={undefined} />
         </div>
       </details>
     </div>
@@ -1229,6 +1289,29 @@ function chainStep(chain: FindingChain): WorkFinding["step"] {
   if (action.status === "open" || !passed) return "verify";
   if (action.status !== "closed") return "close";
   return "done";
+}
+
+function stepWho(step: WorkFinding["step"]): string {
+  if (step === "assess") return "Safety officer or commander";
+  if (step === "decide") return "Commander";
+  if (step === "verify") return "Supervisor";
+  return "Safety officer";
+}
+
+function nextTask(
+  lanes: Array<{ active: boolean; findings: WorkFinding[] }>,
+  overdueIds: Set<string>,
+): WorkFinding | undefined {
+  const mine = lanes
+    .filter((lane) => lane.active)
+    .flatMap((lane) => lane.findings)
+    .filter((finding) => !overdueIds.has(finding.id));
+  const order: WorkFinding["step"][] = ["decide", "assess", "assign", "verify", "close"];
+  for (const step of order) {
+    const found = mine.find((finding) => finding.step === step);
+    if (found) return found;
+  }
+  return undefined;
 }
 
 function stepGuide(step: WorkFinding["step"]): string {

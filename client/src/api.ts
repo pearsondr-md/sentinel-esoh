@@ -35,7 +35,12 @@ export type AuditLine = { id: string; objective?: string; text: string; result?:
 
 export type OverdueAction = { id: string; findingId: string; description: string; dueOn: string };
 
-export type CampCount = { name: string; steps: Record<string, number>; overdueActions: number };
+export type CampCount = {
+  name: string;
+  steps: Record<string, number>;
+  overdueActions: number;
+  residual: Record<string, number>;
+};
 
 export type LibraryEntry = { id: string; kind: "chemical" | "job"; name: string; note: string };
 
@@ -459,8 +464,17 @@ export const api = {
       { title, auditedOn, answers },
     ),
   council: (token: string) => request<CouncilReport>("/council", token),
-  ask: (token: string, question: string, findingId: string | null) =>
-    request<Answer>("/questions", token, "POST", { question, ...(findingId ? { findingId } : {}) }),
+  ask: (
+    token: string,
+    question: string,
+    findingId: string | null,
+    earlier: Array<{ question: string; answer: string }> = [],
+  ) =>
+    request<Answer>("/questions", token, "POST", {
+      question,
+      ...(findingId ? { findingId } : {}),
+      ...(earlier.length > 0 ? { earlier } : {}),
+    }),
   asohms: (token: string) => request<{ notice: string; objectives: AsohmsObjective[] }>("/asohms", token),
   saveAsohmsPractice: (
     token: string,

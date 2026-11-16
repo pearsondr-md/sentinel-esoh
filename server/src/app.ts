@@ -164,7 +164,7 @@ export function createApp(
       throw new HttpError(403, "safety officer or commander is required");
     }
     res.json({
-      notice: "Counts of records at each camp. Not a score and not a rate. The words of another camp's findings are not included.",
+      notice: "Counts of records at each camp. Residual columns count matrix words already recorded. They do not accept the risk. Not a score and not a rate. The words of another camp's findings are not included.",
       camps: campCounts(db, localDate()),
     });
   }));
@@ -990,13 +990,14 @@ export function createApp(
     const actor = requireActor(db, req);
     const body = bodyOf(req);
     for (const key of Object.keys(body)) {
-      if (key !== "question" && key !== "findingId") {
+      if (key !== "question" && key !== "findingId" && key !== "earlier") {
         throw new HttpError(400, `${key} is not part of a question`);
       }
     }
     const question = requireString(body, "question");
     if (question.length > 2000) throw new HttpError(400, "question is too long");
     const findingId = optionalString(body, "findingId");
+    const earlier = earlierTurns(body);
     const packet = questionPacket(db, actor, findingId);
     const sources = loadSources(db);
     const prompt = buildQuestionPrompt({
@@ -1004,6 +1005,7 @@ export function createApp(
       records: packet.records,
       recordIds: packet.recordIds,
       sources,
+      earlier,
     });
     const complete = options?.complete ?? callXai;
     let replyText: string;
@@ -1450,6 +1452,13 @@ function questionPacket(db: DatabaseSync, actor: Actor, findingId: string | null
     status: String(row.status),
     programArea: row.program_area,
   }));
+  const actions = openActions(db, actor);
+  const waiting = findingWorkRows(db, actor.organizationIds).map(publicWorkFinding).map((row) => ({
+    id: String(row.id),
+    originalText: String(row.originalText),
+    step: String(row.step),
+    residualLevel: row.residualLevel,
+  }));
   const exposures = listScoped(db, actor, "exposure_group", "created_at").map(publicExposure);
   const practice = db.prepare(
     `SELECT o.id, s.practice_status, s.stage_label
@@ -1460,6 +1469,7 @@ function questionPacket(db: DatabaseSync, actor: Actor, findingId: string | null
   const selected = findingId ? findingChain(db, mustFinding(db, findingId, actor)) : null;
   const labels: SuppliedRecord[] = [
     ...findings.map((finding) => ({ id: finding.id, label: finding.originalText })),
+    ...actions.map((action) => ({ id: action.id, label: action.description })),
     ...exposures.map((group) => ({ id: String(group.id), label: `${group.agent} at ${group.shop}` })),
     ...practice.map((row) => ({ id: String(row.id), label: String(row.id) })),
   ];
@@ -1471,6 +1481,14 @@ function questionPacket(db: DatabaseSync, actor: Actor, findingId: string | null
   return {
     records: {
       findings,
+      work: {
+        today: localDate(),
+        note: "These rows are the records this account can open. They are not another camp's words.",
+        assignedToYou: actions.filter((action) => action.assignedToYou),
+        overdue: actions.filter((action) => action.overdue),
+        openActions: actions,
+      },
+      waiting,
       exposureGroups: exposures,
       asohmsPractice: practice.map((row) => ({
         code: row.id,
@@ -1482,6 +1500,45 @@ function questionPacket(db: DatabaseSync, actor: Actor, findingId: string | null
     recordIds,
     labels,
   };
+}
+
+function openActions(db: DatabaseSync, actor: Actor) {
+  const ids = actor.organizationIds;
+  if (ids.length === 0) return [];
+  const placeholders = ids.map(() => "?").join(", ");
+  const today = localDate();
+  const rows = db.prepare(
+    `SELECT ca.id, ca.finding_id, ca.description, ca.due_on, ca.status, ca.owner_user_id, u.display_name AS owner_name
+     FROM corrective_action ca
+     LEFT JOIN user u ON u.id = ca.owner_user_id
+     WHERE ca.organization_id IN (${placeholders}) AND ca.status != 'closed'
+     ORDER BY ca.due_on`,
+  ).all(...ids) as Array<Record<string, unknown>>;
+  return rows.map((row) => ({
+    id: String(row.id),
+    findingId: String(row.finding_id),
+    description: String(row.description),
+    dueOn: row.due_on == null ? null : String(row.due_on),
+    status: String(row.status),
+    ownerName: row.owner_name == null ? null : String(row.owner_name),
+    assignedToYou: row.owner_user_id === actor.id,
+    overdue: row.due_on != null && String(row.due_on) < today,
+  }));
+}
+
+function earlierTurns(body: Record<string, unknown>): Array<{ question: string; answer: string }> {
+  if (!("earlier" in body)) return [];
+  if (!Array.isArray(body.earlier)) throw new HttpError(400, "earlier turns must be a list");
+  if (body.earlier.length > 8) throw new HttpError(400, "earlier turns are limited to the last eight");
+  return body.earlier.map((item) => {
+    if (!item || typeof item !== "object") throw new HttpError(400, "each earlier turn needs a question and an answer");
+    const row = item as { question?: unknown; answer?: unknown };
+    if (typeof row.question !== "string" || typeof row.answer !== "string") {
+      throw new HttpError(400, "each earlier turn needs a question and an answer");
+    }
+    if (row.question.length > 2000 || row.answer.length > 4000) throw new HttpError(400, "an earlier turn is too long");
+    return { question: row.question, answer: row.answer };
+  });
 }
 
 function now(): string {
@@ -1809,9 +1866,14 @@ function campCounts(db: DatabaseSync, today: string) {
     return current?.name ?? "Unknown";
   };
   const steps = ["assess", "decide", "assign", "verify", "close", "done"];
+  const levels = ["extremely high", "high", "medium", "low"];
   const buckets = new Map<string, Record<string, number>>();
+  const residual = new Map<string, Record<string, number>>();
   for (const org of orgs) {
-    if (!org.parent_id) buckets.set(org.name, Object.fromEntries(steps.map((step) => [step, 0])));
+    if (!org.parent_id) {
+      buckets.set(org.name, Object.fromEntries(steps.map((step) => [step, 0])));
+      residual.set(org.name, Object.fromEntries(levels.map((level) => [level, 0])));
+    }
   }
   for (const row of findingWorkRows(db, orgs.map((org) => org.id))) {
     const name = rootName(String(row.organization_id));
@@ -1819,6 +1881,12 @@ function campCounts(db: DatabaseSync, today: string) {
     const step = String(workStep(row));
     bucket[step] = (bucket[step] ?? 0) + 1;
     buckets.set(name, bucket);
+    const level = row.residual_level == null ? "" : String(row.residual_level);
+    if (levels.includes(level)) {
+      const words = residual.get(name) ?? Object.fromEntries(levels.map((item) => [item, 0]));
+      words[level] = (words[level] ?? 0) + 1;
+      residual.set(name, words);
+    }
   }
   const late = db.prepare(
     `SELECT organization_id, COUNT(*) AS n FROM corrective_action
@@ -1834,6 +1902,7 @@ function campCounts(db: DatabaseSync, today: string) {
     name,
     steps: stepCounts,
     overdueActions: overdue.get(name) ?? 0,
+    residual: residual.get(name) ?? Object.fromEntries(levels.map((level) => [level, 0])),
   }));
 }
 

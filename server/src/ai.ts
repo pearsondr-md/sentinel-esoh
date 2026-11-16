@@ -21,8 +21,11 @@ export function buildQuestionPrompt(input: {
   records: unknown;
   recordIds: string[];
   sources: SourceCard[];
+  earlier?: Array<{ question: string; answer: string }>;
 }): string {
+  const turns = (input.earlier ?? []).flatMap((turn) => ["Earlier question:", turn.question, "Earlier answer:", turn.answer, ""]);
   return [
+    ...turns,
     "Question:",
     input.question,
     "",
@@ -39,6 +42,9 @@ export function buildQuestionPrompt(input: {
 
 export const MODEL_INSTRUCTIONS = [
   "You explain records that were supplied to you.",
+  "Questions about what is assigned or overdue are answered from work.assignedToYou and work.overdue. work.today is the date. waiting lists findings by step.",
+  "Do not invent a row that was not supplied. If the list is empty, say so in facts.",
+  "Write each fact as a plain sentence naming the work and the date. When asked who owns the work, name the owner. Do not print ids, field names, or JSON.",
   "Separate facts, observations, assumptions, and recommendations.",
   "Say when the records are too few to support a conclusion.",
   "Cite a record id only if it was supplied. Cite a source id only if its card was supplied.",
@@ -172,7 +178,7 @@ function parseModelJson(raw: string): {
     const value = JSON.parse(trimmed) as Record<string, unknown>;
     if (!value || typeof value !== "object" || Array.isArray(value)) return empty;
     return {
-      facts: strings(value.facts),
+      facts: strings(value.facts).length > 0 ? strings(value.facts) : strings(value.key_facts),
       observations: strings(value.observations),
       assumptions: strings(value.assumptions),
       recommendations: strings(value.recommendations),

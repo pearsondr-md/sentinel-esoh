@@ -645,6 +645,9 @@ describe("Shop 2 workflow", () => {
     assert.equal(body.includes(created.originalText), false);
     assert.equal(body.includes(created.id), false);
     assert.equal((comparison.camps as Array<{ name: string }>).some((camp) => camp.name === "Camp Harrow"), true);
+    const redwood = (comparison.camps as Array<{ name: string; residual: Record<string, number> }>).find((camp) => camp.name === "Camp Redwood");
+    assert.equal(typeof redwood?.residual.high, "number");
+    assert.equal(body.includes("The east fuel break has grown back across the fire road."), false);
     assert.equal("score" in comparison, false);
     await api(safety, "POST", `/findings/${created.id}/authorizations`, {
       taskName: "Raise a vehicle",
@@ -885,6 +888,7 @@ describe("explanation call", () => {
       assert.equal(stored.recordCitations[0].id, finding.id);
       assert.equal(stored.sourceCitations[0].id, "src-atp-5-19-1-49");
       assert.equal(stored.sourceCitations[0].reviewStatus, "verified");
+      assert.equal(prompt.includes("Close the brake-cleaner container."), true);
       assert.equal(prompt.includes("Unit 2 private solvent note"), false);
       assert.equal(prompt.includes("password"), false);
       assert.equal(prompt.includes(dbPath), false);

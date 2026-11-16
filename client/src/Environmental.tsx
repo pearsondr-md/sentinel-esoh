@@ -695,6 +695,7 @@ export function ProgramAudit({
   const [auditedOn, setAuditedOn] = useState("2026-11-15");
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [openLines, setOpenLines] = useState<AuditLine[]>([]);
+  const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const canRecord = session.roles.includes("safety officer") || session.roles.includes("commander");
 
@@ -712,29 +713,29 @@ export function ProgramAudit({
   return (
     <section className="panel space-y-3">
       <p className="text-xs font-semibold tracking-wide text-[#8a6a32]">Program audit</p>
-      <h3 className="text-xl font-semibold">Look at the program</h3>
+      {audits[0] ? (
+        <button
+          className="task"
+          type="button"
+          onClick={() => {
+            const shown = openLines.length > 0;
+            if (shown) {
+              setOpenLines([]);
+              return;
+            }
+            api.audit(session.token, audits[0].id).then((detail) => setOpenLines(detail.lines)).catch((caught: unknown) => setError(messageOf(caught)));
+          }}
+        >
+          <span className="text-xs font-semibold tracking-wide text-[#8a6a32]">Annual look</span>
+          <span className="mt-1 block font-medium">
+            {audits[0].title} — {audits[0].notMet > 0 ? `${audits[0].notMet} not met` : `${audits[0].met} met`}
+          </span>
+          <span className="mt-1 block text-sm text-[#6d6256]">Open the lines. The count is not a score and it is not a risk level.</span>
+        </button>
+      ) : (
+        <h3 className="text-xl font-semibold">No look is on the books</h3>
+      )}
       <p className="text-sm text-[#5c5348]">{notice}</p>
-      {audits.length > 0 ? (
-        <ul className="space-y-2">
-          {audits.map((audit) => (
-            <li key={audit.id}>
-              <button
-                className="text-left text-sm"
-                type="button"
-                onClick={() => {
-                  api.audit(session.token, audit.id).then((detail) => setOpenLines(detail.lines)).catch((caught: unknown) => setError(messageOf(caught)));
-                }}
-              >
-                <span className="font-medium">{audit.title}</span>
-                <span className="text-[#6d6256]">
-                  {" "}
-                  · {audit.auditedOn}. {audit.met} met, {audit.notMet} not met, {audit.notLookedAt} not looked at.
-                </span>
-              </button>
-            </li>
-          ))}
-        </ul>
-      ) : null}
       {openLines.length > 0 ? (
         <ul className="space-y-2">
           {openLines.map((line) => (
@@ -752,6 +753,12 @@ export function ProgramAudit({
         </ul>
       ) : null}
       {canRecord ? (
+        <button className="btn-quiet" type="button" onClick={() => setStarting((current) => !current)}>
+          {starting ? "Hide the new look" : "Start a look"}
+        </button>
+      ) : null}
+      {error ? <p className="text-sm text-red-800">{error}</p> : null}
+      {canRecord && starting ? (
         <form
           className="space-y-3"
           onSubmit={(event) => {
