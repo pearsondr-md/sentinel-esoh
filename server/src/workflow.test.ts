@@ -407,8 +407,15 @@ describe("Shop 2 workflow", () => {
     assert.equal("oshaRate" in council, false);
     assert.equal("readiness" in council, false);
     assert.equal(
-      (council.overdueActions as Array<{ id: string }>).some((action) => action.id === late.id),
-      true,
+      (council.overdueActions as Array<{ id: string; findingId: string }>).find((action) => action.id === late.id)?.findingId,
+      finding.id,
+    );
+    const held = (council.records as { findings: Array<{ id: string; status: string }> }).findings;
+    const heldFinding = held.find((row) => row.id === finding.id);
+    assert.ok(heldFinding);
+    assert.equal(
+      held.filter((row) => row.status === heldFinding.status).length,
+      (council.findings as Record<string, number>)[heldFinding.status],
     );
     assert.equal(
       (council.overdueActions as Array<{ id: string }>).some((action) => action.id === future.id),

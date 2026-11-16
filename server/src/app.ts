@@ -113,56 +113,10 @@ export function createApp(
       return;
     }
     const inspections = listScoped(db, actor, "inspection", "inspected_on DESC").map(publicInspection);
-    const placeholders = ids.map(() => "?").join(", ");
-    const rows = db.prepare(
-      `SELECT f.id, f.original_text, f.status,
-         (SELECT inspection_id FROM observation WHERE id = f.source_observation_id) AS inspection_id,
-         (SELECT COUNT(*) FROM finding_hazard fh WHERE fh.finding_id = f.id) AS hazard_count,
-         (SELECT COUNT(*) FROM risk_assessment ra
-            JOIN finding_hazard fh ON fh.hazard_id = ra.hazard_id
-            WHERE fh.finding_id = f.id AND ra.phase = 'initial') AS initial_count,
-         (SELECT COUNT(*) FROM risk_assessment ra
-            JOIN finding_hazard fh ON fh.hazard_id = ra.hazard_id
-            WHERE fh.finding_id = f.id AND ra.phase = 'residual') AS residual_count,
-         (SELECT COUNT(*) FROM control c
-            JOIN risk_assessment ra ON ra.id = c.assessment_id
-            JOIN finding_hazard fh ON fh.hazard_id = ra.hazard_id
-            WHERE fh.finding_id = f.id) AS control_count,
-         (SELECT COUNT(*) FROM risk_decision rd
-            JOIN risk_assessment ra ON ra.id = rd.assessment_id
-            JOIN finding_hazard fh ON fh.hazard_id = ra.hazard_id
-            WHERE fh.finding_id = f.id) AS decision_count,
-         (SELECT ac.result FROM authority_check ac
-            JOIN risk_decision rd ON rd.id = ac.decision_id
-            JOIN risk_assessment ra ON ra.id = rd.assessment_id
-            JOIN finding_hazard fh ON fh.hazard_id = ra.hazard_id
-            WHERE fh.finding_id = f.id
-            ORDER BY rd.created_at DESC LIMIT 1) AS authority_result,
-         (SELECT id FROM corrective_action WHERE finding_id = f.id ORDER BY created_at DESC LIMIT 1) AS action_id,
-         (SELECT status FROM corrective_action WHERE finding_id = f.id ORDER BY created_at DESC LIMIT 1) AS action_status,
-         (SELECT description FROM corrective_action WHERE finding_id = f.id ORDER BY created_at DESC LIMIT 1) AS action_description,
-         (SELECT owner_user_id FROM corrective_action WHERE finding_id = f.id ORDER BY created_at DESC LIMIT 1) AS action_owner_user_id,
-         (SELECT COUNT(*) FROM verification v
-            JOIN corrective_action ca ON ca.id = v.action_id
-            WHERE ca.finding_id = f.id AND v.result = 'pass') AS passed
-       FROM finding f
-       WHERE f.organization_id IN (${placeholders})
-       ORDER BY f.created_at DESC`,
-    ).all(...ids) as Array<Record<string, unknown>>;
+    const rows = findingWorkRows(db, ids);
     res.json({
       inspections,
-      findings: rows.map((row) => ({
-        id: row.id,
-        originalText: row.original_text,
-        status: row.status,
-        inspectionId: row.inspection_id,
-        authorityResult: row.authority_result,
-        actionId: row.action_id,
-        actionStatus: row.action_status,
-        actionDescription: row.action_description,
-        actionOwnerUserId: row.action_owner_user_id,
-        step: workStep(row),
-      })),
+      findings: rows.map(publicWorkFinding),
     });
   }));
 
@@ -473,16 +427,56 @@ export function createApp(
     const actor = requireActor(db, req);
     const ids = actor.organizationIds;
     const today = localDate();
+    const findingRows = findingWorkRows(db, ids).map(publicWorkFinding);
+    const actionRows = orgRows(db, "corrective_action", "id, finding_id, description, status, due_on", ids, "created_at DESC");
+    const inspectionRows = orgRows(db, "inspection", "id, shop_name, inspected_on, status", ids, "inspected_on DESC");
+    const obligationRows = orgRows(db, "obligation", "id, title", ids, "created_at DESC");
+    const wasteRows = orgRows(db, "waste_stream", "id, name", ids, "created_at DESC");
+    const spillRows = orgRows(db, "spill", "id, description", ids, "created_at DESC");
+    const exposureRows = orgRows(db, "exposure_group", "id, agent, shop, headcount", ids, "created_at DESC");
+    const actions = actionRows.map((row) => ({
+      id: String(row.id),
+      findingId: String(row.finding_id),
+      label: String(row.description),
+      status: String(row.status),
+      dueOn: row.due_on == null ? null : String(row.due_on),
+    }));
+    const exposureGroups = exposureRows.map((row) => ({
+      id: String(row.id),
+      label: `${String(row.agent)} · ${String(row.shop)}`,
+      headcount: Number(row.headcount),
+    }));
     res.json({
       asOf: today,
-      findings: countByStatus(db, "finding", ids),
-      actions: countByStatus(db, "corrective_action", ids),
-      inspections: countByStatus(db, "inspection", ids),
-      overdueActions: overdueActions(db, ids, today),
-      exposureGroups: exposureTotals(db, ids),
-      obligations: countRows(db, "obligation", ids),
-      wasteStreams: countRows(db, "waste_stream", ids),
-      spills: countRows(db, "spill", ids),
+      findings: tallyStatus(findingRows.map((row) => ({ status: String(row.status) }))),
+      actions: tallyStatus(actions),
+      inspections: tallyStatus(inspectionRows.map((row) => ({ status: String(row.status) }))),
+      overdueActions: actions.filter((action) => action.dueOn != null && action.dueOn < today && action.status !== "closed"),
+      exposureGroups: {
+        groups: exposureGroups.length,
+        people: exposureGroups.reduce((sum, group) => sum + group.headcount, 0),
+      },
+      obligations: obligationRows.length,
+      wasteStreams: wasteRows.length,
+      spills: spillRows.length,
+      records: {
+        findings: findingRows.map((row) => ({
+          id: row.id,
+          label: row.originalText,
+          status: row.status,
+          step: row.step,
+        })),
+        actions,
+        inspections: inspectionRows.map((row) => ({
+          id: String(row.id),
+          label: `${String(row.shop_name)} · ${String(row.inspected_on)}`,
+          status: String(row.status),
+        })),
+        obligations: obligationRows.map((row) => ({ id: String(row.id), label: String(row.title) })),
+        wasteStreams: wasteRows.map((row) => ({ id: String(row.id), label: String(row.name) })),
+        spills: spillRows.map((row) => ({ id: String(row.id), label: String(row.description) })),
+        exposureGroups,
+      },
       notStored: [
         { item: "ASOHMS implementation status", reason: "Official criteria are not loaded." },
         { item: "Training completion", reason: "Training records are not in SENTINEL." },
@@ -1248,6 +1242,81 @@ function localDate(): string {
   return `${now.getFullYear()}-${month}-${day}`;
 }
 
+function findingWorkRows(db: DatabaseSync, ids: string[]): Array<Record<string, unknown>> {
+  if (ids.length === 0) {
+    return [];
+  }
+  const placeholders = ids.map(() => "?").join(", ");
+  return db.prepare(
+    `SELECT f.id, f.original_text, f.status,
+       (SELECT inspection_id FROM observation WHERE id = f.source_observation_id) AS inspection_id,
+       (SELECT COUNT(*) FROM finding_hazard fh WHERE fh.finding_id = f.id) AS hazard_count,
+       (SELECT COUNT(*) FROM risk_assessment ra
+          JOIN finding_hazard fh ON fh.hazard_id = ra.hazard_id
+          WHERE fh.finding_id = f.id AND ra.phase = 'initial') AS initial_count,
+       (SELECT COUNT(*) FROM risk_assessment ra
+          JOIN finding_hazard fh ON fh.hazard_id = ra.hazard_id
+          WHERE fh.finding_id = f.id AND ra.phase = 'residual') AS residual_count,
+       (SELECT COUNT(*) FROM control c
+          JOIN risk_assessment ra ON ra.id = c.assessment_id
+          JOIN finding_hazard fh ON fh.hazard_id = ra.hazard_id
+          WHERE fh.finding_id = f.id) AS control_count,
+       (SELECT COUNT(*) FROM risk_decision rd
+          JOIN risk_assessment ra ON ra.id = rd.assessment_id
+          JOIN finding_hazard fh ON fh.hazard_id = ra.hazard_id
+          WHERE fh.finding_id = f.id) AS decision_count,
+       (SELECT ac.result FROM authority_check ac
+          JOIN risk_decision rd ON rd.id = ac.decision_id
+          JOIN risk_assessment ra ON ra.id = rd.assessment_id
+          JOIN finding_hazard fh ON fh.hazard_id = ra.hazard_id
+          WHERE fh.finding_id = f.id
+          ORDER BY rd.created_at DESC LIMIT 1) AS authority_result,
+       (SELECT id FROM corrective_action WHERE finding_id = f.id ORDER BY created_at DESC LIMIT 1) AS action_id,
+       (SELECT status FROM corrective_action WHERE finding_id = f.id ORDER BY created_at DESC LIMIT 1) AS action_status,
+       (SELECT description FROM corrective_action WHERE finding_id = f.id ORDER BY created_at DESC LIMIT 1) AS action_description,
+       (SELECT owner_user_id FROM corrective_action WHERE finding_id = f.id ORDER BY created_at DESC LIMIT 1) AS action_owner_user_id,
+       (SELECT COUNT(*) FROM verification v
+          JOIN corrective_action ca ON ca.id = v.action_id
+          WHERE ca.finding_id = f.id AND v.result = 'pass') AS passed
+     FROM finding f
+     WHERE f.organization_id IN (${placeholders})
+     ORDER BY f.created_at DESC`,
+  ).all(...ids) as Array<Record<string, unknown>>;
+}
+
+function publicWorkFinding(row: Record<string, unknown>) {
+  return {
+    id: row.id,
+    originalText: row.original_text,
+    status: row.status,
+    inspectionId: row.inspection_id,
+    authorityResult: row.authority_result,
+    actionId: row.action_id,
+    actionStatus: row.action_status,
+    actionDescription: row.action_description,
+    actionOwnerUserId: row.action_owner_user_id,
+    step: workStep(row),
+  };
+}
+
+function tallyStatus(rows: Array<{ status: string }>): Record<string, number> {
+  const counts: Record<string, number> = {};
+  for (const row of rows) {
+    counts[row.status] = (counts[row.status] ?? 0) + 1;
+  }
+  return counts;
+}
+
+function orgRows(db: DatabaseSync, table: string, columns: string, ids: string[], orderBy: string): Array<Record<string, unknown>> {
+  if (!/^[a-z_]+$/.test(table) || !/^[a-z_, ]+$/.test(columns) || !/^[a-z_]+ DESC$/.test(orderBy) || ids.length === 0) {
+    return [];
+  }
+  const placeholders = ids.map(() => "?").join(", ");
+  return db
+    .prepare(`SELECT ${columns} FROM ${table} WHERE organization_id IN (${placeholders}) ORDER BY ${orderBy}`)
+    .all(...ids) as Array<Record<string, unknown>>;
+}
+
 function workStep(row: Record<string, unknown>): string {
   const hazard = Number(row.hazard_count);
   const initial = Number(row.initial_count);
@@ -1262,59 +1331,6 @@ function workStep(row: Record<string, unknown>): string {
   if (actionStatus === "open" || passed === 0) return "verify";
   if (actionStatus !== "closed") return "close";
   return "done";
-}
-
-function orgFilter(ids: string[]): string {
-  return `organization_id IN (${ids.map(() => "?").join(", ")})`;
-}
-
-function countByStatus(db: DatabaseSync, table: string, ids: string[]): Record<string, number> {
-  if (!/^[a-z_]+$/.test(table) || ids.length === 0) {
-    return {};
-  }
-  const rows = db
-    .prepare(`SELECT status, COUNT(*) AS n FROM ${table} WHERE ${orgFilter(ids)} GROUP BY status`)
-    .all(...ids) as Array<{ status: string; n: number }>;
-  return Object.fromEntries(rows.map((row) => [row.status, row.n]));
-}
-
-function countRows(db: DatabaseSync, table: string, ids: string[]): number {
-  if (!/^[a-z_]+$/.test(table) || ids.length === 0) {
-    return 0;
-  }
-  const row = db.prepare(`SELECT COUNT(*) AS n FROM ${table} WHERE ${orgFilter(ids)}`).get(...ids) as { n: number };
-  return row.n;
-}
-
-function exposureTotals(db: DatabaseSync, ids: string[]): { groups: number; people: number } {
-  if (ids.length === 0) {
-    return { groups: 0, people: 0 };
-  }
-  const row = db
-    .prepare(
-      `SELECT COUNT(*) AS groups, COALESCE(SUM(headcount), 0) AS people FROM exposure_group WHERE ${orgFilter(ids)}`,
-    )
-    .get(...ids) as { groups: number; people: number };
-  return row;
-}
-
-function overdueActions(db: DatabaseSync, ids: string[], today: string) {
-  if (ids.length === 0) {
-    return [];
-  }
-  const rows = db
-    .prepare(
-      `SELECT id, description, due_on, status FROM corrective_action
-       WHERE ${orgFilter(ids)} AND due_on IS NOT NULL AND due_on < ? AND status != 'closed'
-       ORDER BY due_on`,
-    )
-    .all(...ids, today) as Array<{ id: string; description: string; due_on: string; status: string }>;
-  return rows.map((row) => ({
-    id: row.id,
-    description: row.description,
-    dueOn: row.due_on,
-    status: row.status,
-  }));
 }
 
 function listScoped(db: DatabaseSync, actor: Actor, table: string, orderBy: string): Record<string, unknown>[] {

@@ -174,14 +174,22 @@ function Workspace({ session }: { session: Session }) {
   const [environmental, setEnvironmental] = useState<EnvironmentalSelection | null>(null);
   const [exposureId, setExposureId] = useState<string | null>(null);
   const [place, setPlace] = useState<Place>("home");
+  const [backPlace, setBackPlace] = useState<Place>("home");
   const [findingId, setFindingId] = useState<string | null>(() => sessionStorage.getItem(findingKey));
   const [work, setWork] = useState<{ inspections: Inspection[]; findings: WorkFinding[] }>({ inspections: [], findings: [] });
   const [error, setError] = useState<string | null>(null);
 
-  function openFinding(id: string) {
+  function openFinding(id: string, back: Place = place) {
     sessionStorage.setItem(findingKey, id);
     setFindingId(id);
-    setPlace("home");
+    setBackPlace(back);
+  }
+
+  function closeDetail() {
+    sessionStorage.removeItem(findingKey);
+    setFindingId(null);
+    setInspectionId(null);
+    setPlace(backPlace);
   }
 
   function goHome() {
@@ -237,11 +245,30 @@ function Workspace({ session }: { session: Session }) {
       </nav>
       {error ? <p className="text-sm text-red-800">{error}</p> : null}
       {findingId ? (
-        <FindingRecord session={session} findingId={findingId} onBack={goHome} />
+        <FindingRecord session={session} findingId={findingId} onBack={closeDetail} />
       ) : inspectionId ? (
-        <InspectionDetail session={session} inspectionId={inspectionId} onSelectFinding={openFinding} onBack={goHome} />
+        <InspectionDetail session={session} inspectionId={inspectionId} onSelectFinding={openFinding} onBack={closeDetail} />
       ) : place === "council" ? (
-        <CouncilView session={session} />
+        <CouncilView
+          session={session}
+          onOpenFinding={(id) => openFinding(id, "council")}
+          onOpenInspection={(id) => {
+            setBackPlace("council");
+            setInspectionId(id);
+          }}
+          onOpenEnvironment={(selection) => {
+            setFindingId(null);
+            sessionStorage.removeItem(findingKey);
+            setEnvironmental(selection);
+            setPlace("environment");
+          }}
+          onOpenExposure={(id) => {
+            setFindingId(null);
+            sessionStorage.removeItem(findingKey);
+            setExposureId(id);
+            setPlace("exposure");
+          }}
+        />
       ) : place === "asohms" ? (
         <AsohmsView session={session} />
       ) : place === "ask" ? (
