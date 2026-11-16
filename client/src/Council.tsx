@@ -36,6 +36,57 @@ export function CouncilView({
   }
 
   const drill = selected ? drillFor(report, selected) : null;
+  const missing = selected?.startsWith("missing:")
+    ? report.notStored.find((item) => item.item === selected.slice("missing:".length))
+    : undefined;
+
+  if (missing) {
+    return (
+      <section className="panel space-y-3">
+        <button className="text-sm text-[#8a6a32] underline" type="button" onClick={() => setSelected(null)}>
+          Back to council
+        </button>
+        <h2 className="text-2xl font-semibold">{missing.item}</h2>
+        <p>{missing.reason}</p>
+        <p className="text-sm text-[#6d6256]">No rows. SENTINEL does not store this, so there is no list to open.</p>
+      </section>
+    );
+  }
+
+  if (drill) {
+    return (
+      <section className="space-y-4">
+        <div className="panel">
+          <button className="text-sm text-[#8a6a32] underline" type="button" onClick={() => setSelected(null)}>
+            Back to council
+          </button>
+          <h2 className="mt-2 text-2xl font-semibold">{drill.title}</h2>
+          <p className="mt-1 text-[#5c5348]">{drill.note}</p>
+        </div>
+        {drill.rows.length === 0 ? <p className="text-sm text-[#6d6256]">No records in this bucket.</p> : null}
+        <ul className="space-y-3">
+          {drill.rows.map((row) => (
+            <li key={row.id}>
+              <button
+                className="panel w-full text-left"
+                type="button"
+                onClick={() => openRow(drill.kind, row, { onOpenFinding, onOpenInspection, onOpenEnvironment, onOpenExposure })}
+              >
+                <span className="block font-medium">{row.label}</span>
+                <span className="mt-1 block text-sm text-[#6d6256]">
+                  {row.step ? `Step: ${row.step}. ` : ""}
+                  {row.status ? `Status: ${row.status}. ` : ""}
+                  {row.headcount != null ? `${row.headcount} people. Names are not stored. ` : ""}
+                  {row.dueOn ? `Due ${row.dueOn}. ` : ""}
+                  Open this record.
+                </span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      </section>
+    );
+  }
 
   return (
     <section className="space-y-6">
@@ -105,28 +156,6 @@ export function CouncilView({
           </div>
         </article>
       </div>
-      {drill ? (
-        <article className="panel">
-          <h3 className="font-semibold">{drill.title}</h3>
-          <p className="mt-1 text-sm text-[#6d6256]">{drill.note}</p>
-          {drill.rows.length === 0 ? <p className="mt-3 text-sm text-[#6d6256]">No records in this bucket.</p> : null}
-          <ul className="mt-3 space-y-2">
-            {drill.rows.map((row) => (
-              <li key={row.id}>
-                <button className="text-left" type="button" onClick={() => openRow(drill.kind, row, { onOpenFinding, onOpenInspection, onOpenEnvironment, onOpenExposure })}>
-                  <span className="block font-medium">{row.label}</span>
-                  <span className="text-sm text-[#6d6256]">
-                    {row.step ? `Step: ${row.step}. ` : ""}
-                    {row.status ? `Status: ${row.status}. ` : ""}
-                    {row.headcount != null ? `${row.headcount} people. Names are not stored.` : ""}
-                    {row.dueOn ? `Due ${row.dueOn}.` : ""}
-                  </span>
-                </button>
-              </li>
-            ))}
-          </ul>
-        </article>
-      ) : null}
       <article className="panel">
         <h3 className="font-semibold">Actions past due</h3>
         {report.overdueActions.length === 0 ? (
@@ -148,12 +177,9 @@ export function CouncilView({
         <ul className="mt-2 space-y-2">
           {report.notStored.map((item) => (
             <li key={item.item}>
-              <button className="text-left" type="button" onClick={() => choose(`missing:${item.item}`)}>
-                <span className="font-medium">{item.item}.</span> {selected === `missing:${item.item}` ? item.reason : "Open the reason."}
+              <button className="text-left underline" type="button" onClick={() => choose(`missing:${item.item}`)}>
+                <span className="font-medium">{item.item}.</span> Open why this is not stored.
               </button>
-              {selected === `missing:${item.item}` ? (
-                <p className="mt-1 text-sm text-[#6d6256]">No rows. SENTINEL does not store this, so it is not a chart.</p>
-              ) : null}
             </li>
           ))}
         </ul>

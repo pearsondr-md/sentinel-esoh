@@ -175,6 +175,7 @@ function Workspace({ session }: { session: Session }) {
   const [exposureId, setExposureId] = useState<string | null>(null);
   const [place, setPlace] = useState<Place>("home");
   const [backPlace, setBackPlace] = useState<Place>("home");
+  const [reportFilter, setReportFilter] = useState<string | null>(null);
   const [findingId, setFindingId] = useState<string | null>(() => sessionStorage.getItem(findingKey));
   const [work, setWork] = useState<{ inspections: Inspection[]; findings: WorkFinding[] }>({ inspections: [], findings: [] });
   const [error, setError] = useState<string | null>(null);
@@ -298,18 +299,26 @@ function Workspace({ session }: { session: Session }) {
             <p className="mt-1 text-sm text-[#6d6256]">File what you saw. The shared log can leave your name off.</p>
             <div className="mt-4">
               <Bars
+                selected={reportFilter}
+                onSelect={setReportFilter}
                 items={[
-                  { label: "Name on the log", value: reports.filter((report) => report.showName).length, tone: "#3d342b" },
-                  { label: "Name withheld", value: reports.filter((report) => !report.showName).length, tone: "#b8893a" },
+                  { key: "named", label: "Name on the log", value: reports.filter((report) => report.showName).length, tone: "#3d342b" },
+                  { key: "withheld", label: "Name withheld", value: reports.filter((report) => !report.showName).length, tone: "#b8893a" },
                 ]}
               />
             </div>
             {reports.length === 0 ? <p className="mt-3 text-sm text-[#6d6256]">No written report yet.</p> : null}
             <ul className="mt-3 space-y-2">
-              {reports.map((report) => (
+              {reports
+              .filter((report) => (reportFilter === "named" ? report.showName : reportFilter === "withheld" ? !report.showName : true))
+              .map((report) => (
                 <li key={report.id}>
-                  <button className="text-left underline" type="button" onClick={() => setReportId(report.id)}>
-                    {report.text}
+                  <button className="panel w-full text-left" type="button" onClick={() => setReportId(report.id)}>
+                    <span className="text-xs font-semibold tracking-wide text-[#8a6a32]">
+                      {report.showName && report.reporterDisplayName ? report.reporterDisplayName : "Name withheld"}
+                    </span>
+                    <span className="mt-1 block">{report.text}</span>
+                    <span className="mt-1 block text-sm text-[#6d6256]">Open this report.</span>
                   </button>
                 </li>
               ))}
@@ -331,6 +340,10 @@ function Workspace({ session }: { session: Session }) {
           reports={reports}
           onOpenInspection={(id) => setInspectionId(id)}
           onOpenFinding={openFinding}
+          onOpenReport={(id) => {
+            setReportId(id);
+            setPlace("reports");
+          }}
           onCreated={() => refresh().catch((caught: unknown) => setError(messageOf(caught)))}
         />
       )}
@@ -344,6 +357,7 @@ function Home({
   reports,
   onOpenInspection,
   onOpenFinding,
+  onOpenReport,
   onCreated,
 }: {
   session: Session;
@@ -351,12 +365,14 @@ function Home({
   reports: EmployeeReport[];
   onOpenInspection: (id: string) => void;
   onOpenFinding: (id: string) => void;
+  onOpenReport: (id: string) => void;
   onCreated: () => void;
 }) {
   const safety = session.roles.includes("safety officer");
   const identify = work.inspections.filter((inspection) => !work.findings.some((finding) => finding.inspectionId === inspection.id));
   const count = (step: WorkFinding["step"]) => work.findings.filter((finding) => finding.step === step).length;
   const named = reports.filter((report) => report.showName).length;
+  const [windowKey, setWindowKey] = useState<string | null>(null);
   const lanes = [
     {
       role: "Safety officer",
@@ -384,6 +400,40 @@ function Home({
     },
   ];
 
+  const opened = windowKey ? overviewWindow(windowKey, work, identify, reports) : null;
+  if (opened) {
+    return (
+      <section className="space-y-4">
+        <div className="panel">
+          <button className="text-sm text-[#8a6a32] underline" type="button" onClick={() => setWindowKey(null)}>
+            Back to overview
+          </button>
+          <h2 className="mt-2 text-2xl font-semibold">{opened.title}</h2>
+          <p className="mt-1 text-[#5c5348]">{opened.note}</p>
+        </div>
+        <ul className="space-y-3">
+          {opened.rows.map((row) => (
+            <li key={row.id}>
+              <button
+                className="panel w-full text-left"
+                type="button"
+                onClick={() => {
+                  if (row.kind === "inspection") onOpenInspection(row.id);
+                  if (row.kind === "finding") onOpenFinding(row.id);
+                  if (row.kind === "report") onOpenReport(row.id);
+                }}
+              >
+                <span className="text-xs font-semibold tracking-wide text-[#8a6a32]">{row.meta}</span>
+                <span className="mt-1 block font-medium">{row.label}</span>
+                <span className="mt-1 block text-sm text-[#6d6256]">Open this record.</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      </section>
+    );
+  }
+
   return (
     <div className="space-y-5">
       <section className="panel">
@@ -393,13 +443,14 @@ function Home({
         </p>
         <div className="mt-5 overflow-x-auto">
           <Flow
+            onSelect={setWindowKey}
             steps={[
-              { label: "Identify", who: "Safety officer", value: identify.length },
-              { label: "Assess", who: "Safety officer", value: count("assess") },
-              { label: "Decide", who: "Commander", value: count("decide") },
-              { label: "Assign", who: "Safety officer", value: count("assign") },
-              { label: "Verify", who: "Supervisor", value: count("verify") },
-              { label: "Close", who: "Safety officer", value: count("close") + count("done") },
+              { key: "identify", label: "Identify", who: "Safety officer", value: identify.length },
+              { key: "assess", label: "Assess", who: "Safety officer", value: count("assess") },
+              { key: "decide", label: "Decide", who: "Commander", value: count("decide") },
+              { key: "assign", label: "Assign", who: "Safety officer", value: count("assign") },
+              { key: "verify", label: "Verify", who: "Supervisor", value: count("verify") },
+              { key: "closing", label: "Close", who: "Safety officer", value: count("close") + count("done") },
             ]}
           />
         </div>
@@ -409,13 +460,14 @@ function Home({
           <h3 className="font-semibold">Findings by step</h3>
           <div className="mt-4">
             <Bars
+              onSelect={setWindowKey}
               items={[
-                { label: "Assess", value: count("assess"), tone: "#3d342b" },
-                { label: "Decide", value: count("decide"), tone: "#8a6a32" },
-                { label: "Assign", value: count("assign"), tone: "#b8893a" },
-                { label: "Verify", value: count("verify"), tone: "#c4a15a" },
-                { label: "Close", value: count("close"), tone: "#7d8a62" },
-                { label: "Closed", value: count("done"), tone: "#5f6b4c" },
+                { key: "assess", label: "Assess", value: count("assess"), tone: "#3d342b" },
+                { key: "decide", label: "Decide", value: count("decide"), tone: "#8a6a32" },
+                { key: "assign", label: "Assign", value: count("assign"), tone: "#b8893a" },
+                { key: "verify", label: "Verify", value: count("verify"), tone: "#c4a15a" },
+                { key: "close", label: "Close", value: count("close"), tone: "#7d8a62" },
+                { key: "done", label: "Closed", value: count("done"), tone: "#5f6b4c" },
               ]}
             />
           </div>
@@ -424,9 +476,10 @@ function Home({
           <h3 className="font-semibold">Written reports</h3>
           <div className="mt-4">
             <Bars
+              onSelect={setWindowKey}
               items={[
-                { label: "Name on the log", value: named, tone: "#3d342b" },
-                { label: "Name withheld", value: reports.length - named, tone: "#b8893a" },
+                { key: "named", label: "Name on the log", value: named, tone: "#3d342b" },
+                { key: "withheld", label: "Name withheld", value: reports.length - named, tone: "#b8893a" },
               ]}
             />
           </div>
@@ -455,10 +508,12 @@ function Home({
                 {reports.length === 0 ? <li className="text-sm text-[#6d6256]">No written report yet.</li> : null}
                 {reports.map((report) => (
                   <li key={report.id}>
-                    <span className="text-xs font-semibold tracking-wide text-[#8a6a32]">
-                      {report.showName && report.reporterDisplayName ? report.reporterDisplayName : "Name withheld"}
-                    </span>
-                    <span className="block">{report.text}</span>
+                    <button className="text-left" type="button" onClick={() => onOpenReport(report.id)}>
+                      <span className="text-xs font-semibold tracking-wide text-[#8a6a32]">
+                        {report.showName && report.reporterDisplayName ? report.reporterDisplayName : "Name withheld"}
+                      </span>
+                      <span className="block">{report.text}</span>
+                    </button>
                   </li>
                 ))}
               </ul>
@@ -491,6 +546,55 @@ function Home({
       </div>
     </div>
   );
+}
+
+function overviewWindow(
+  key: string,
+  work: { findings: WorkFinding[] },
+  identify: Inspection[],
+  reports: EmployeeReport[],
+): { title: string; note: string; rows: Array<{ id: string; kind: "inspection" | "finding" | "report"; label: string; meta: string }> } | null {
+  if (key === "identify") {
+    return {
+      title: "Identify",
+      note: "Inspections that do not have a finding yet.",
+      rows: identify.map((inspection) => ({
+        id: inspection.id,
+        kind: "inspection",
+        label: `${inspection.shopName} · ${inspection.inspectedOn}`,
+        meta: "Inspection",
+      })),
+    };
+  }
+  if (key === "named" || key === "withheld") {
+    const shown = reports.filter((report) => (key === "named" ? report.showName : !report.showName));
+    return {
+      title: key === "named" ? "Name on the log" : "Name withheld",
+      note: "Written reports in this group.",
+      rows: shown.map((report) => ({
+        id: report.id,
+        kind: "report",
+        label: report.text,
+        meta: report.showName && report.reporterDisplayName ? report.reporterDisplayName : "Name withheld",
+      })),
+    };
+  }
+  const findings = work.findings.filter((finding) =>
+    key === "closing" ? finding.step === "close" || finding.step === "done" : finding.step === key,
+  );
+  if (!["assess", "decide", "assign", "verify", "close", "closing", "done"].includes(key)) {
+    return null;
+  }
+  return {
+    title: key === "closing" ? "Close" : stepTitle(key as WorkFinding["step"]),
+    note: "Each row is a finding at this step.",
+    rows: findings.map((finding) => ({
+      id: finding.id,
+      kind: "finding" as const,
+      label: finding.originalText,
+      meta: stepTitle(finding.step),
+    })),
+  };
 }
 
 function stepTitle(step: WorkFinding["step"]): string {

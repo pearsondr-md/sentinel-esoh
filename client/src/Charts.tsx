@@ -52,19 +52,40 @@ export function Bars({
   );
 }
 
-export function Flow({ steps }: { steps: Array<{ label: string; who: string; value: number }> }) {
+export function Flow({
+  steps,
+  onSelect,
+}: {
+  steps: Array<{ key?: string; label: string; who: string; value: number }>;
+  onSelect?: (key: string) => void;
+}) {
   return (
     <ol className="flex flex-wrap items-stretch gap-2" aria-label="Steps from identify to close">
-      {steps.map((step, index) => (
-        <li key={step.label} className="flex items-center gap-2">
-          <div className="min-w-28 rounded-2xl bg-[#fffdf8] px-3 py-3 text-center ring-1 ring-[#eadfce]">
+      {steps.map((step, index) => {
+        const stepKey = step.key ?? step.label;
+        const open = step.value > 0 && onSelect;
+        const card = (
+          <>
             <span className="block text-2xl font-semibold tabular-nums">{step.value}</span>
             <span className="block text-sm font-medium">{step.label}</span>
             <span className="block text-xs text-[#6d6256]">{step.who}</span>
-          </div>
-          {index < steps.length - 1 ? <span className="text-[#b8893a]" aria-hidden="true">→</span> : null}
-        </li>
-      ))}
+          </>
+        );
+        return (
+          <li key={stepKey} className="flex items-center gap-2">
+            {open ? (
+              <button className="min-w-28 rounded-2xl bg-[#fffdf8] px-3 py-3 text-center ring-1 ring-[#eadfce] hover:ring-[#b8893a]" type="button" onClick={() => onSelect(stepKey)}>
+                {card}
+              </button>
+            ) : (
+              <div className="min-w-28 rounded-2xl bg-[#fffdf8] px-3 py-3 text-center ring-1 ring-[#eadfce]" title="No records in this step.">
+                {card}
+              </div>
+            )}
+            {index < steps.length - 1 ? <span className="text-[#b8893a]" aria-hidden="true">→</span> : null}
+          </li>
+        );
+      })}
     </ol>
   );
 }
