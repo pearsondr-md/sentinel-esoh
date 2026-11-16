@@ -247,9 +247,26 @@ CREATE TABLE IF NOT EXISTS waste_stream_finding (
   PRIMARY KEY (waste_stream_id, finding_id)
 );
 
+CREATE TABLE IF NOT EXISTS hazardous_material (
+  id TEXT PRIMARY KEY,
+  organization_id TEXT NOT NULL REFERENCES organization(id),
+  name TEXT NOT NULL,
+  storage_place TEXT NOT NULL,
+  sheet_place TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  created_by TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS hazardous_material_finding (
+  material_id TEXT NOT NULL REFERENCES hazardous_material(id),
+  finding_id TEXT NOT NULL REFERENCES finding(id),
+  PRIMARY KEY (material_id, finding_id)
+);
+
 CREATE TABLE IF NOT EXISTS spill (
   id TEXT PRIMARY KEY,
   organization_id TEXT NOT NULL REFERENCES organization(id),
+  material_id TEXT REFERENCES hazardous_material(id),
   description TEXT NOT NULL,
   reported_to TEXT NOT NULL,
   created_at TEXT NOT NULL,
@@ -437,6 +454,7 @@ export function openDatabase(dbPath: string): DatabaseSync {
   const db = new DatabaseSync(dbPath);
   db.exec("PRAGMA foreign_keys = ON;");
   db.exec(SCHEMA);
+  ensureColumn(db, "spill", "material_id", "TEXT REFERENCES hazardous_material(id)");
   seed(db);
   ensureShopEmployee(db);
   ensureAsohms(db);
@@ -444,6 +462,13 @@ export function openDatabase(dbPath: string): DatabaseSync {
   ensureLocations(db, hashPassword(DEMO_PASSWORD));
   ensureArmyRecords(db);
   return db;
+}
+
+function ensureColumn(db: DatabaseSync, table: string, column: string, definition: string): void {
+  const columns = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+  if (!columns.some((item) => item.name === column)) {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+  }
 }
 
 function seed(db: DatabaseSync): void {

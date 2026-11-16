@@ -506,6 +506,39 @@ describe("Shop 2 workflow", () => {
     assert.equal(JSON.stringify(comparison).includes("A Soldier reported an injury at the lift."), false);
   });
 
+  it("keeps a hazardous-material inventory as a place for the sheet, not the sheet", async () => {
+    const safety = await login("shop2.safety@camp-sentinel.example");
+    const otherUnit = await login("unit2.safety@camp-sentinel.example");
+    const meridian = await login("safety@camp-meridian.example");
+    await api(safety, "POST", "/materials", {
+      name: "Parts-washer solvent",
+      storagePlace: "Parts washer",
+      sheetPlace: "Posted on the washer",
+      sheetText: "full sheet",
+    }, 400);
+    const material = await api(safety, "POST", "/materials", {
+      name: "Parts-washer solvent",
+      storagePlace: "Parts washer",
+      sheetPlace: "Posted on the washer",
+    });
+    assert.equal(material.sheetPlace, "Posted on the washer");
+    assert.equal("sheetText" in material, false);
+    await api(otherUnit, "GET", `/materials/${material.id}`, undefined, 404);
+    const spill = await api(safety, "POST", "/spills", {
+      description: "Solvent dripped at the washer.",
+      reportedTo: "Camp Sentinel garrison on-scene coordinator",
+      materialId: material.id,
+    });
+    assert.equal(spill.sheetPlace, "Posted on the washer");
+    const held = await api(safety, "GET", "/materials");
+    assert.equal((held.materials as Array<{ storagePlace: string }>).some((row) => row.storagePlace === "Bay 3 cabinet"), true);
+    const elsewhere = await api(meridian, "GET", "/materials");
+    assert.equal((elsewhere.materials as Array<{ storagePlace: string }>).some((row) => row.storagePlace === "Bay 3 cabinet"), false);
+    assert.equal((elsewhere.materials as Array<{ storagePlace: string }>).some((row) => row.storagePlace === "Fill stand"), true);
+    const comparison = await api(safety, "GET", "/comparison");
+    assert.equal(JSON.stringify(comparison).includes("Posted on the washer"), false);
+  });
+
   it("stores an exposure group as counts and rejects a diagnosis", async () => {
     const safety = await login("shop2.safety@camp-sentinel.example");
     const otherUnit = await login("unit2.safety@camp-sentinel.example");

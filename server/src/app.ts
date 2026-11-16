@@ -458,9 +458,62 @@ export function createApp(
     res.status(201).json(publicFinding(finding));
   }));
 
+  app.get("/materials", wrap((req, res) => {
+    const actor = requireActor(db, req);
+    res.json({
+      notice: "The inventory says where the safety data sheet is kept. The sheet itself is not stored, and this record is not a cleanup procedure.",
+      materials: listScoped(db, actor, "hazardous_material", "name ASC").map(publicMaterial),
+    });
+  }));
+
+  app.post("/materials", wrap((req, res) => {
+    const actor = requireActor(db, req);
+    requireRole(actor, "safety officer");
+    const body = bodyOf(req);
+    rejectMaterialExtras(body);
+    const id = randomUUID();
+    db.prepare(
+      `INSERT INTO hazardous_material (id, organization_id, name, storage_place, sheet_place, created_at, created_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      id,
+      homeOrg(actor),
+      requireString(body, "name"),
+      requireString(body, "storagePlace"),
+      requireString(body, "sheetPlace"),
+      now(),
+      actor.id,
+    );
+    res.status(201).json(publicMaterial(getOne(db, "hazardous_material", id)));
+  }));
+
+  app.get("/materials/:id", wrap((req, res) => {
+    const actor = requireActor(db, req);
+    const material = mustGet(db, "hazardous_material", routeId(req.params.id), actor);
+    res.json({
+      material: publicMaterial(material),
+      findings: linkedFindings(db, "hazardous_material_finding", "material_id", material.id),
+    });
+  }));
+
+  app.post("/materials/:id/findings", wrap((req, res) => {
+    const actor = requireActor(db, req);
+    requireRole(actor, "safety officer");
+    const material = mustGet(db, "hazardous_material", routeId(req.params.id), actor);
+    const finding = insertFinding(db, actor, {
+      organizationId: material.organization_id,
+      originalText: requireOriginalText(bodyOf(req)),
+      sourceObservationId: null,
+      sourceReportId: null,
+      programArea: "materials",
+    });
+    db.prepare("INSERT INTO hazardous_material_finding (material_id, finding_id) VALUES (?, ?)").run(material.id, finding.id);
+    res.status(201).json(publicFinding(finding));
+  }));
+
   app.get("/spills", wrap((req, res) => {
     const actor = requireActor(db, req);
-    res.json({ spills: listScoped(db, actor, "spill", "created_at DESC").map(publicSpill) });
+    res.json({ spills: listScoped(db, actor, "spill", "created_at DESC").map((row) => publicSpill(db, row)) });
   }));
 
   app.post("/spills", wrap((req, res) => {
@@ -468,22 +521,24 @@ export function createApp(
     requireRole(actor, "safety officer");
     const body = bodyOf(req);
     rejectCompliance(body);
+    rejectMaterialExtras(body);
     if ("mishapId" in body) {
       throw new HttpError(400, "record the mishap on its own. A spill does not assign a mishap class");
     }
+    const materialId = materialInHome(db, actor, body.materialId);
     const id = randomUUID();
     db.prepare(
-      `INSERT INTO spill (id, organization_id, description, reported_to, created_at, created_by)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-    ).run(id, homeOrg(actor), requireString(body, "description"), requireString(body, "reportedTo"), now(), actor.id);
-    res.status(201).json(publicSpill(getOne(db, "spill", id)));
+      `INSERT INTO spill (id, organization_id, material_id, description, reported_to, created_at, created_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    ).run(id, homeOrg(actor), materialId, requireString(body, "description"), requireString(body, "reportedTo"), now(), actor.id);
+    res.status(201).json(publicSpill(db, getOne(db, "spill", id)));
   }));
 
   app.get("/spills/:id", wrap((req, res) => {
     const actor = requireActor(db, req);
     const spill = mustGet(db, "spill", routeId(req.params.id), actor);
     res.json({
-      spill: publicSpill(spill),
+      spill: publicSpill(db, spill),
       steps: spillSteps(db, spill.id),
       findings: linkedFindings(db, "spill_finding", "spill_id", spill.id),
     });
@@ -714,6 +769,7 @@ export function createApp(
     const obligationRows = orgRows(db, "obligation", "id, title", ids, "created_at DESC");
     const wasteRows = orgRows(db, "waste_stream", "id, name", ids, "created_at DESC");
     const spillRows = orgRows(db, "spill", "id, description", ids, "created_at DESC");
+    const materialRows = orgRows(db, "hazardous_material", "id, name, storage_place", ids, "name DESC");
     const mishapRows = orgRows(db, "mishap", "id, narrative, personnel_category, outcome", ids, "occurred_on DESC");
     const trainingRows = orgRows(db, "training_session", "id, topic, audience, due_on, completed_on", ids, "due_on DESC");
     const fireRows = orgRows(db, "wildland_fire", "id, kind, place", ids, "occurred_on DESC");
@@ -743,6 +799,7 @@ export function createApp(
       obligations: obligationRows.length,
       wasteStreams: wasteRows.length,
       spills: spillRows.length,
+      materials: materialRows.length,
       mishaps: mishapRows.length,
       training: trainingRows.length,
       wildlandFires: fireRows.length,
@@ -762,6 +819,10 @@ export function createApp(
         obligations: obligationRows.map((row) => ({ id: String(row.id), label: String(row.title) })),
         wasteStreams: wasteRows.map((row) => ({ id: String(row.id), label: String(row.name) })),
         spills: spillRows.map((row) => ({ id: String(row.id), label: String(row.description) })),
+        materials: materialRows.map((row) => ({
+          id: String(row.id),
+          label: `${String(row.name)} · ${String(row.storage_place)}`,
+        })),
         mishaps: mishapRows.map((row) => ({
           id: String(row.id),
           label: `${String(row.personnel_category)} · ${String(row.outcome)}`,
@@ -1960,12 +2021,45 @@ function requireDate(body: Record<string, unknown>, key: string): string {
   return value;
 }
 
-function publicSpill(row: Record<string, unknown>) {
+function publicMaterial(row: Record<string, unknown>) {
+  return {
+    id: String(row.id),
+    name: String(row.name),
+    storagePlace: String(row.storage_place),
+    sheetPlace: String(row.sheet_place),
+  };
+}
+
+function materialInHome(db: DatabaseSync, actor: Actor, value: unknown): string | null {
+  if (value == null || value === "") return null;
+  if (typeof value !== "string") throw new HttpError(400, "materialId must name a material in this place");
+  const material = mustGet(db, "hazardous_material", value, actor);
+  if (material.organization_id !== homeOrg(actor)) {
+    throw new HttpError(400, "the material has to be kept at the place filing the spill");
+  }
+  return material.id;
+}
+
+function rejectMaterialExtras(body: Record<string, unknown>): void {
+  rejectCompliance(body);
+  for (const key of ["sheetText", "composition", "ingredients", "firstAid", "cleanup", "recipe"]) {
+    if (key in body) throw new HttpError(400, "the safety data sheet text is not stored");
+  }
+}
+
+function publicSpill(db: DatabaseSync, row: Record<string, unknown>) {
+  const material = row.material_id == null
+    ? undefined
+    : (db.prepare("SELECT name, storage_place, sheet_place FROM hazardous_material WHERE id = ?").get(String(row.material_id)) as { name: string; storage_place: string; sheet_place: string } | undefined);
   return {
     id: row.id,
     organizationId: row.organization_id,
     description: row.description,
     reportedTo: row.reported_to,
+    materialId: row.material_id == null ? null : String(row.material_id),
+    materialName: material?.name ?? null,
+    storagePlace: material?.storage_place ?? null,
+    sheetPlace: material?.sheet_place ?? null,
   };
 }
 

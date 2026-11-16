@@ -1432,7 +1432,7 @@ function LibraryPick({ token, onPick }: { token: string; onPick: (text: string) 
           <option key={entry.id} value={entry.id}>{entry.kind === "chemical" ? "Chemical" : "Job"} · {entry.name}</option>
         ))}
       </select>
-      <span className="mt-1 block text-xs text-[#6d6256]">A name fills the box. It does not set a risk level, and a safety data sheet is not stored.</span>
+      <span className="mt-1 block text-xs text-[#6d6256]">A name fills the box. It does not set a risk level. The inventory records where the safety data sheet is kept.</span>
     </label>
   );
 }

@@ -3,6 +3,7 @@ import { PROGRAM_AREAS, WASTE_KINDS } from "../../shared/src/index.ts";
 import {
   api,
   type FindingSummary,
+  type HazardousMaterial,
   type Mishap,
   type Obligation,
   type Session,
@@ -17,6 +18,7 @@ export type EnvironmentalSelection =
   | { kind: "obligation"; id: string }
   | { kind: "waste"; id: string }
   | { kind: "spill"; id: string }
+  | { kind: "material"; id: string }
   | { kind: "mishap"; id: string }
   | { kind: "training"; id: string }
   | { kind: "fire"; id: string };
@@ -33,6 +35,8 @@ export function EnvironmentalLists({
   const [obligations, setObligations] = useState<Obligation[]>([]);
   const [wastes, setWastes] = useState<WasteStream[]>([]);
   const [spills, setSpills] = useState<Spill[]>([]);
+  const [materials, setMaterials] = useState<HazardousMaterial[]>([]);
+  const [materialNotice, setMaterialNotice] = useState("");
   const [mishaps, setMishaps] = useState<Mishap[]>([]);
   const [mishapNotice, setMishapNotice] = useState("");
   const [sessions, setSessions] = useState<TrainingSession[]>([]);
@@ -42,10 +46,11 @@ export function EnvironmentalLists({
   const safety = session.roles.includes("safety officer");
 
   async function reload() {
-    const [obligationBody, wasteBody, spillBody, mishapBody, trainingBody, fireBody] = await Promise.all([
+    const [obligationBody, wasteBody, spillBody, materialBody, mishapBody, trainingBody, fireBody] = await Promise.all([
       api.obligations(session.token),
       api.wasteStreams(session.token),
       api.spills(session.token),
+      api.materials(session.token),
       api.mishaps(session.token),
       api.training(session.token),
       api.wildlandFires(session.token),
@@ -53,6 +58,8 @@ export function EnvironmentalLists({
     setObligations(obligationBody.obligations);
     setWastes(wasteBody.wasteStreams);
     setSpills(spillBody.spills);
+    setMaterials(materialBody.materials);
+    setMaterialNotice(materialBody.notice);
     setMishaps(mishapBody.mishaps);
     setMishapNotice(mishapBody.notice);
     setSessions(trainingBody.sessions);
@@ -102,6 +109,22 @@ export function EnvironmentalLists({
           }}
         />
       ) : null}
+      <p className="mb-2 text-sm text-stone-600">{materialNotice}</p>
+      <RecordList
+        title="Hazardous materials"
+        items={materials.map((item) => ({ id: item.id, label: item.name, detail: `${item.storagePlace}. Sheet: ${item.sheetPlace}.` }))}
+        selectedId={selected?.kind === "material" ? selected.id : null}
+        onSelect={(id) => onSelect({ kind: "material", id })}
+      />
+      {safety ? (
+        <MaterialForm
+          token={session.token}
+          onCreated={(material) => {
+            onSelect({ kind: "material", id: material.id });
+            reload().catch((caught: unknown) => setError(messageOf(caught)));
+          }}
+        />
+      ) : null}
       <RecordList
         title="Spills"
         items={spills.map((item) => ({ id: item.id, label: item.description, detail: item.reportedTo }))}
@@ -111,6 +134,7 @@ export function EnvironmentalLists({
       {safety ? (
         <SpillForm
           token={session.token}
+          materials={materials}
           onCreated={(spill) => {
             onSelect({ kind: "spill", id: spill.id });
             reload().catch((caught: unknown) => setError(messageOf(caught)));
@@ -204,8 +228,14 @@ export function EnvironmentalDetail({
     } else if (selection.kind === "spill") {
       const detail = await api.spill(session.token, selection.id);
       setHeading(detail.spill.description);
-      setBody(`Reported to ${detail.spill.reportedTo}. Cleanup steps record what was done. They do not decide liability.`);
+      setBody(`Reported to ${detail.spill.reportedTo}. ${detail.spill.materialName ? `${detail.spill.materialName} is kept at ${detail.spill.storagePlace}. The safety data sheet is ${detail.spill.sheetPlace?.toLowerCase()}. ` : ""}Cleanup steps record what was done. They do not decide liability, and the sheet text is not stored.`);
       setSteps(detail.steps);
+      setFindings(detail.findings);
+    } else if (selection.kind === "material") {
+      const detail = await api.material(session.token, selection.id);
+      setHeading(detail.material.name);
+      setBody(`Kept at ${detail.material.storagePlace}. The safety data sheet is ${detail.material.sheetPlace.toLowerCase()}. The sheet text is not stored.`);
+      setSteps([]);
       setFindings(detail.findings);
     } else if (selection.kind === "mishap") {
       const detail = await api.mishap(session.token, selection.id);
@@ -273,6 +303,8 @@ export function EnvironmentalDetail({
                   ? api.addFindingFromWaste(session.token, selection.id, originalText)
                   : selection.kind === "spill"
                     ? api.addFindingFromSpill(session.token, selection.id, originalText)
+                    : selection.kind === "material"
+                      ? api.addFindingFromMaterial(session.token, selection.id, originalText)
                     : selection.kind === "mishap"
                       ? api.addFindingFromMishap(session.token, selection.id, originalText)
                       : selection.kind === "training"
@@ -398,15 +430,51 @@ function WasteForm({
   );
 }
 
-function SpillForm({ token, onCreated }: { token: string; onCreated: (spill: Spill) => void }) {
-  const [description, setDescription] = useState("");
-  const [reportedTo, setReportedTo] = useState("");
+function MaterialForm({ token, onCreated }: { token: string; onCreated: (material: HazardousMaterial) => void }) {
+  const [name, setName] = useState("");
+  const [storagePlace, setStoragePlace] = useState("");
+  const [sheetPlace, setSheetPlace] = useState("");
   const [error, setError] = useState<string | null>(null);
   return (
-    <form className="space-y-2" onSubmit={(event) => submit(event, () => api.createSpill(token, description, reportedTo).then(onCreated), setError)}>
+    <form className="mb-4 space-y-2" onSubmit={(event) => submit(event, () => api.createMaterial(token, name, storagePlace, sheetPlace).then(onCreated), setError)}>
+      <h3 className="font-medium">Record a hazardous material</h3>
+      <Field label="Name" value={name} onChange={setName} />
+      <Field label="Where it is kept" value={storagePlace} onChange={setStoragePlace} />
+      <Field label="Where the safety data sheet is posted" value={sheetPlace} onChange={setSheetPlace} />
+      <p className="text-sm text-stone-600">Record the place. The sheet text is not stored.</p>
+      {error ? <p className="text-sm text-red-800">{error}</p> : null}
+      <button className="rounded bg-stone-900 px-3 py-1 text-sm text-white" type="submit">Save material</button>
+    </form>
+  );
+}
+
+function SpillForm({
+  token,
+  materials,
+  onCreated,
+}: {
+  token: string;
+  materials: HazardousMaterial[];
+  onCreated: (spill: Spill) => void;
+}) {
+  const [description, setDescription] = useState("");
+  const [reportedTo, setReportedTo] = useState("");
+  const [materialId, setMaterialId] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  return (
+    <form className="space-y-2" onSubmit={(event) => submit(event, () => api.createSpill(token, description, reportedTo, materialId || null).then(onCreated), setError)}>
       <h3 className="font-medium">Record a spill</h3>
       <Field label="What happened" value={description} onChange={setDescription} />
       <Field label="Reported to" value={reportedTo} onChange={setReportedTo} />
+      <label className="block text-sm font-medium">
+        Material, if it is already on the inventory
+        <select className="mt-1 w-full rounded border border-stone-300 bg-white px-2 py-1 font-normal" value={materialId} onChange={(event) => setMaterialId(event.target.value)}>
+          <option value="">None</option>
+          {materials.map((material) => (
+            <option key={material.id} value={material.id}>{material.name} · {material.storagePlace}</option>
+          ))}
+        </select>
+      </label>
       <p className="text-sm text-stone-600">The publication calls for immediate reporting to the garrison or the on-scene coordinator. This field stores that report. It does not send one.</p>
       {error ? <p className="text-sm text-red-800">{error}</p> : null}
       <button className="rounded bg-stone-900 px-3 py-1 text-sm text-white" type="submit">

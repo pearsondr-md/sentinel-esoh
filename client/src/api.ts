@@ -71,6 +71,17 @@ export type Spill = {
   id: string;
   description: string;
   reportedTo: string;
+  materialId?: string | null;
+  materialName?: string | null;
+  storagePlace?: string | null;
+  sheetPlace?: string | null;
+};
+
+export type HazardousMaterial = {
+  id: string;
+  name: string;
+  storagePlace: string;
+  sheetPlace: string;
 };
 
 export type SpillStep = { id: string; step: string; note: string };
@@ -157,6 +168,7 @@ export type CouncilReport = {
   obligations: number;
   wasteStreams: number;
   spills: number;
+  materials: number;
   mishaps: number;
   training: number;
   wildlandFires: number;
@@ -167,6 +179,7 @@ export type CouncilReport = {
     obligations: CouncilRecord[];
     wasteStreams: CouncilRecord[];
     spills: CouncilRecord[];
+    materials: CouncilRecord[];
     mishaps: CouncilRecord[];
     training: CouncilRecord[];
     wildlandFires: CouncilRecord[];
@@ -409,8 +422,15 @@ export const api = {
     request<WildlandFire>("/wildland-fires", token, "POST", { kind, place, occurredOn, purpose, note }),
   addFindingFromFire: (token: string, fireId: string, originalText: string) =>
     request<FindingSummary>(`/wildland-fires/${fireId}/findings`, token, "POST", { originalText }),
-  createSpill: (token: string, description: string, reportedTo: string) =>
-    request<Spill>("/spills", token, "POST", { description, reportedTo }),
+  materials: (token: string) => request<{ notice: string; materials: HazardousMaterial[] }>("/materials", token),
+  material: (token: string, id: string) =>
+    request<{ material: HazardousMaterial; findings: FindingSummary[] }>(`/materials/${id}`, token),
+  createMaterial: (token: string, name: string, storagePlace: string, sheetPlace: string) =>
+    request<HazardousMaterial>("/materials", token, "POST", { name, storagePlace, sheetPlace }),
+  addFindingFromMaterial: (token: string, materialId: string, originalText: string) =>
+    request<FindingSummary>(`/materials/${materialId}/findings`, token, "POST", { originalText }),
+  createSpill: (token: string, description: string, reportedTo: string, materialId?: string | null) =>
+    request<Spill>("/spills", token, "POST", { description, reportedTo, ...(materialId ? { materialId } : {}) }),
   addFindingFromSpill: (token: string, spillId: string, originalText: string) =>
     request<FindingSummary>(`/spills/${spillId}/findings`, token, "POST", { originalText }),
   council: (token: string) => request<CouncilReport>("/council", token),

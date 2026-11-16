@@ -149,6 +149,7 @@ export function CouncilView({
                 { key: "obligations", label: "Obligations", value: report.obligations },
                 { key: "wasteStreams", label: "Waste streams", value: report.wasteStreams },
                 { key: "spills", label: "Spills", value: report.spills },
+                { key: "materials", label: "Hazardous materials", value: report.materials },
                 { key: "mishaps", label: "Mishaps", value: report.mishaps },
                 { key: "training", label: "Training", value: report.training },
                 { key: "wildlandFires", label: "Wildland fire", value: report.wildlandFires },
@@ -232,6 +233,9 @@ function drillFor(report: CouncilReport, key: string): { title: string; note: st
   if (key === "wasteStreams") {
     return { title: "Waste streams", note: "A waste stream is not a compliance determination.", kind: "waste", rows: report.records.wasteStreams };
   }
+  if (key === "materials") {
+    return { title: "Hazardous materials", note: "Each row says where the material and its safety data sheet are kept. The sheet text is not stored.", kind: "material", rows: report.records.materials };
+  }
   if (key === "spills") {
     return { title: "Spills", note: "A spill record is what was reported, not a mishap class.", kind: "spill", rows: report.records.spills };
   }
@@ -272,6 +276,7 @@ function openRow(
   if (kind === "obligation") handlers.onOpenEnvironment({ kind: "obligation", id: row.id });
   if (kind === "waste") handlers.onOpenEnvironment({ kind: "waste", id: row.id });
   if (kind === "spill") handlers.onOpenEnvironment({ kind: "spill", id: row.id });
+  if (kind === "material") handlers.onOpenEnvironment({ kind: "material", id: row.id });
   if (kind === "mishap") handlers.onOpenEnvironment({ kind: "mishap", id: row.id });
   if (kind === "training") handlers.onOpenEnvironment({ kind: "training", id: row.id });
   if (kind === "fire") handlers.onOpenEnvironment({ kind: "fire", id: row.id });

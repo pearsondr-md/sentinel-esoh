@@ -44,10 +44,10 @@ export const CHECKLISTS: Checklist[] = [
 export type LibraryEntry = { id: string; kind: "chemical" | "job"; name: string; note: string };
 
 export const LIBRARY: LibraryEntry[] = [
-  { id: "chem-solvent", kind: "chemical", name: "Parts-washer solvent", note: "A name for the shop. A safety data sheet is not stored." },
-  { id: "chem-brake", kind: "chemical", name: "Brake cleaner", note: "A name for the shop. A safety data sheet is not stored." },
-  { id: "chem-diesel", kind: "chemical", name: "Diesel", note: "A name for the shop. A safety data sheet is not stored." },
-  { id: "chem-detergent", kind: "chemical", name: "Wash-rack detergent", note: "A name for the shop. A safety data sheet is not stored." },
+  { id: "chem-solvent", kind: "chemical", name: "Parts-washer solvent", note: "A name for the shop. The inventory records where the safety data sheet is kept." },
+  { id: "chem-brake", kind: "chemical", name: "Brake cleaner", note: "A name for the shop. The inventory records where the safety data sheet is kept." },
+  { id: "chem-diesel", kind: "chemical", name: "Diesel", note: "A name for the shop. The inventory records where the safety data sheet is kept." },
+  { id: "chem-detergent", kind: "chemical", name: "Wash-rack detergent", note: "A name for the shop. The inventory records where the safety data sheet is kept." },
   { id: "job-lift", kind: "job", name: "Raise a vehicle", note: "A job step. The risk level still comes from the matrix." },
   { id: "job-wash", kind: "job", name: "Wash a vehicle", note: "A job step. The risk level still comes from the matrix." },
   { id: "job-fuel", kind: "job", name: "Receive fuel", note: "A job step. The risk level still comes from the matrix." },
