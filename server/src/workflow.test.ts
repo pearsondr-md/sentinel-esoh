@@ -518,6 +518,45 @@ describe("Shop 2 workflow", () => {
     assert.equal((hidden.findings as Array<{ id: string }>).some((item) => item.id === finding.id), false);
   });
 
+  it("turns a failed walk line into a finding and keeps camp counts free of record text", async () => {
+    const safety = await login("shop2.safety@camp-sentinel.example");
+    const otherUnit = await login("unit2.safety@camp-sentinel.example");
+    const walk = await api(safety, "POST", "/checklist-walks", {
+      checklistId: "motor-pool",
+      inspectedOn: "2026-11-15",
+      answers: [
+        { itemId: "solvent-label", passed: false },
+        { itemId: "jack-stands", passed: true },
+        { itemId: "eyewash", passed: true },
+        { itemId: "waste-closed", passed: true },
+      ],
+    });
+    const created = (walk.findings as Array<{ id: string; originalText: string }>)[0];
+    assert.equal(created.originalText, "The parts-washer solvent container is labeled.");
+    await api(otherUnit, "GET", `/findings/${created.id}`, undefined, 404);
+    const comparison = await api(safety, "GET", "/comparison");
+    const body = JSON.stringify(comparison);
+    assert.equal(body.includes(created.originalText), false);
+    assert.equal(body.includes(created.id), false);
+    assert.equal((comparison.camps as Array<{ name: string }>).some((camp) => camp.name === "Camp Harrow"), true);
+    assert.equal("score" in comparison, false);
+    await api(safety, "POST", `/findings/${created.id}/authorizations`, {
+      taskName: "Raise a vehicle",
+      note: "Shop 2 supervisor, this shift.",
+      decision: "accept",
+    }, 400);
+    const authorization = await api(safety, "POST", `/findings/${created.id}/authorizations`, {
+      taskName: "Raise a vehicle",
+      note: "Shop 2 supervisor, this shift.",
+    });
+    assert.equal(typeof authorization.id, "string");
+    const work = await api(safety, "GET", "/work");
+    assert.equal(
+      (work.overdue as Array<{ description: string }>).some((action) => action.description === "Close the brake-cleaner container."),
+      true,
+    );
+  });
+
   it("keeps each camp on its own records", async () => {
     const garrison = await login("garrison.safety@camp-sentinel.example");
     const harrow = await login("safety@camp-harrow.example");

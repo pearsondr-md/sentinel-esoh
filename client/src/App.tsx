@@ -5,6 +5,7 @@ import {
   type FindingChain,
   type Inspection,
   type OrgUser,
+  type OverdueAction,
   type Session,
   type WorkFinding,
 } from "./api.ts";
@@ -224,7 +225,11 @@ function Workspace({ session }: { session: Session }) {
   const [backPlace, setBackPlace] = useState<Place>("home");
   const [reportFilter, setReportFilter] = useState<string | null>(null);
   const [findingId, setFindingId] = useState<string | null>(() => sessionStorage.getItem(findingKey));
-  const [work, setWork] = useState<{ inspections: Inspection[]; findings: WorkFinding[] }>({ inspections: [], findings: [] });
+  const [work, setWork] = useState<{ inspections: Inspection[]; findings: WorkFinding[]; overdue: OverdueAction[] }>({
+    inspections: [],
+    findings: [],
+    overdue: [],
+  });
   const [error, setError] = useState<string | null>(null);
 
   function openFinding(id: string, back: Place = place) {
@@ -408,7 +413,7 @@ function Home({
   onCreated,
 }: {
   session: Session;
-  work: { inspections: Inspection[]; findings: WorkFinding[] };
+  work: { inspections: Inspection[]; findings: WorkFinding[]; overdue: OverdueAction[] };
   reports: EmployeeReport[];
   onOpenInspection: (id: string) => void;
   onOpenFinding: (id: string) => void;
@@ -486,8 +491,23 @@ function Home({
       <section className="panel">
         <h2 className="text-2xl font-semibold">{session.displayName}</h2>
         <p className="mt-2 max-w-2xl text-[#5c5348]">
-          These records belong to this location. Choose another camp or shop in the header to see that place's work.
+          These records belong to this location. Choose another camp or shop in the header to see that place's work. A count across camps is not a score.
         </p>
+        {work.overdue.length > 0 ? (
+          <div className="mt-4">
+            <h3 className="font-semibold">Past due</h3>
+            <ul className="mt-2 space-y-2">
+              {work.overdue.map((action) => (
+                <li key={action.id}>
+                  <button className="text-left" type="button" onClick={() => onOpenFinding(action.findingId)}>
+                    <span className="font-medium">{action.description}</span>
+                    <span className="mt-1 block text-sm text-[#6d6256]">Due {action.dueOn}. Open the finding.</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
         <div className="mt-5 overflow-x-auto">
           <Flow
             onSelect={setWindowKey}
@@ -533,6 +553,9 @@ function Home({
           <p className="mt-3 text-sm text-[#6d6256]">{reports.length} report{reports.length === 1 ? "" : "s"} on the shared log.</p>
         </section>
       </div>
+      <SiteCounts findings={work.findings} onOpen={(key) => setWindowKey(key)} />
+      {session.roles.includes("safety officer") || session.roles.includes("commander") ? <CampCounts token={session.token} /> : null}
+      {safety ? <ChecklistWalk token={session.token} onOpenFinding={onOpenFinding} onCreated={onCreated} /> : null}
       <div className="grid gap-4 lg:grid-cols-2">
         {lanes.map((lane) => (
           <section key={lane.role} className={`panel ${lane.active ? "ring-2 ring-[#e4c27a]" : ""}`}>
@@ -601,6 +624,21 @@ function overviewWindow(
   identify: Inspection[],
   reports: EmployeeReport[],
 ): { title: string; note: string; rows: Array<{ id: string; kind: "inspection" | "finding" | "report"; label: string; meta: string }> } | null {
+  if (key.startsWith("site:")) {
+    const name = key.slice("site:".length);
+    return {
+      title: name,
+      note: "Findings at this place. Another camp's words are not in this list.",
+      rows: work.findings
+        .filter((finding) => finding.organizationName === name)
+        .map((finding) => ({
+          id: finding.id,
+          kind: "finding" as const,
+          label: finding.originalText,
+          meta: stepTitle(finding.step),
+        })),
+    };
+  }
   if (key === "identify") {
     return {
       title: "Identify",
@@ -642,6 +680,154 @@ function overviewWindow(
       meta: stepTitle(finding.step),
     })),
   };
+}
+
+function SiteCounts({ findings, onOpen }: { findings: WorkFinding[]; onOpen: (key: string) => void }) {
+  const names = [...new Set(findings.map((finding) => finding.organizationName).filter((name): name is string => Boolean(name)))];
+  if (names.length < 2) return null;
+  return (
+    <section className="panel">
+      <h3 className="font-semibold">Places in this account</h3>
+      <p className="mt-1 text-sm text-[#6d6256]">Each place is a count of findings you can already open.</p>
+      <div className="mt-4">
+        <Bars
+          onSelect={onOpen}
+          items={names.map((name) => ({
+            key: `site:${name}`,
+            label: name,
+            value: findings.filter((finding) => finding.organizationName === name).length,
+          }))}
+        />
+      </div>
+    </section>
+  );
+}
+
+function CampCounts({ token }: { token: string }) {
+  const [camps, setCamps] = useState<Array<{ name: string; steps: Record<string, number>; overdueActions: number }>>([]);
+  const [notice, setNotice] = useState("");
+  useEffect(() => {
+    api.comparison(token).then((body) => {
+      setCamps(body.camps);
+      setNotice(body.notice);
+    }).catch(() => undefined);
+  }, [token]);
+  if (camps.length === 0) return null;
+  const steps = ["assess", "decide", "assign", "verify", "close", "done"];
+  return (
+    <section className="panel">
+      <h3 className="font-semibold">Camps</h3>
+      <p className="mt-1 text-sm text-[#6d6256]">{notice}</p>
+      <div className="mt-4 overflow-x-auto">
+        <table className="w-full text-left text-sm">
+          <thead>
+            <tr className="text-[#6d6256]">
+              <th className="py-2 pr-3 font-medium">Camp</th>
+              {steps.map((step) => (
+                <th key={step} className="px-2 py-2 font-medium capitalize">{step === "done" ? "Closed" : step}</th>
+              ))}
+              <th className="px-2 py-2 font-medium">Past due</th>
+            </tr>
+          </thead>
+          <tbody>
+            {camps.map((camp) => (
+              <tr key={camp.name} className="border-t border-[#eadfce]">
+                <th className="py-2 pr-3 font-medium">{camp.name}</th>
+                {steps.map((step) => (
+                  <td key={step} className="px-2 py-2 tabular-nums">{camp.steps[step] ?? 0}</td>
+                ))}
+                <td className="px-2 py-2 tabular-nums">{camp.overdueActions}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+function ChecklistWalk({
+  token,
+  onOpenFinding,
+  onCreated,
+}: {
+  token: string;
+  onOpenFinding: (id: string) => void;
+  onCreated: () => void;
+}) {
+  const [checklists, setChecklists] = useState<Array<{ id: string; title: string; shopName: string; items: Array<{ id: string; text: string }> }>>([]);
+  const [organizations, setOrganizations] = useState<Array<{ id: string; name: string }>>([]);
+  const [checklistId, setChecklistId] = useState("");
+  const [organizationId, setOrganizationId] = useState("");
+  const [answers, setAnswers] = useState<Record<string, boolean>>({});
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    Promise.all([api.checklists(token), api.organizations(token)]).then(([lists, orgs]) => {
+      setChecklists(lists.checklists);
+      setOrganizations(orgs.organizations);
+      setChecklistId(lists.checklists[0]?.id ?? "");
+      setOrganizationId(orgs.organizations[0]?.id ?? "");
+    }).catch((caught: unknown) => setError(messageOf(caught)));
+  }, [token]);
+  const checklist = checklists.find((item) => item.id === checklistId);
+  const ready = checklist ? checklist.items.every((item) => item.id in answers) : false;
+  return (
+    <section className="panel">
+      <h3 className="font-semibold">Walk</h3>
+      <p className="mt-1 text-sm text-[#6d6256]">Pass or fail each line. A fail is saved as a finding in the words on the line.</p>
+      <label className="mt-3 block text-sm">
+        List
+        <select className="field" value={checklistId} onChange={(event) => { setChecklistId(event.target.value); setAnswers({}); }}>
+          {checklists.map((item) => (
+            <option key={item.id} value={item.id}>{item.title}</option>
+          ))}
+        </select>
+      </label>
+      {organizations.length > 1 ? (
+        <label className="mt-3 block text-sm">
+          Place
+          <select className="field" value={organizationId} onChange={(event) => setOrganizationId(event.target.value)}>
+            {organizations.map((org) => (
+              <option key={org.id} value={org.id}>{org.name}</option>
+            ))}
+          </select>
+        </label>
+      ) : null}
+      <ul className="mt-4 space-y-3">
+        {checklist?.items.map((item) => (
+          <li key={item.id} className="rounded-2xl bg-[#f6f0e6] px-3 py-3">
+            <p>{item.text}</p>
+            <div className="mt-2 flex gap-2">
+              <button className={answers[item.id] === true ? "btn" : "btn-quiet"} type="button" onClick={() => setAnswers({ ...answers, [item.id]: true })}>Pass</button>
+              <button className={answers[item.id] === false ? "btn" : "btn-quiet"} type="button" onClick={() => setAnswers({ ...answers, [item.id]: false })}>Fail</button>
+            </div>
+          </li>
+        ))}
+      </ul>
+      {error ? <p className="mt-2 text-sm text-red-800">{error}</p> : null}
+      <button
+        className="btn mt-4"
+        type="button"
+        disabled={!ready}
+        onClick={() => {
+          if (!checklist) return;
+          api.checklistWalk(
+            token,
+            checklist.id,
+            new Date().toISOString().slice(0, 10),
+            organizationId,
+            checklist.items.map((item) => ({ itemId: item.id, passed: answers[item.id] === true })),
+          ).then((result) => {
+            onCreated();
+            const first = result.findings[0];
+            if (first) onOpenFinding(first.id);
+          }).catch((caught: unknown) => setError(messageOf(caught)));
+        }}
+      >
+        Save the walk
+      </button>
+    </section>
+  );
 }
 
 function stepTitle(step: WorkFinding["step"]): string {
@@ -952,6 +1138,22 @@ function FindingRecord({ session, findingId, onBack }: { session: Session; findi
           />
         ) : null}
       </article>
+      <article className="panel">
+        <h3 className="font-semibold">Work authorization</h3>
+        <p className="mt-1 text-sm text-[#6d6256]">Who may do this task. This is not a risk acceptance and it does not change the matrix.</p>
+        <ul className="mt-2 space-y-2">
+          {chain.authorizations.map((item) => (
+            <li key={item.id}>{item.taskName}. {item.note} Authorized by {item.authorizedBy}.</li>
+          ))}
+        </ul>
+        {safety ? (
+          <AuthorizationForm
+            token={session.token}
+            findingId={findingId}
+            onCreated={() => reload().catch((caught: unknown) => setError(messageOf(caught)))}
+          />
+        ) : null}
+      </article>
       <details className="panel">
         <summary className="cursor-pointer font-semibold">Ask about this finding</summary>
         <div className="mt-4">
@@ -1208,6 +1410,63 @@ function ReportDetail({
   );
 }
 
+function LibraryPick({ token, onPick }: { token: string; onPick: (text: string) => void }) {
+  const [entries, setEntries] = useState<Array<{ id: string; kind: string; name: string; note: string }>>([]);
+  useEffect(() => {
+    api.library(token).then((body) => setEntries(body.entries)).catch(() => undefined);
+  }, [token]);
+  if (entries.length === 0) return null;
+  return (
+    <label className="block text-sm">
+      Chemical or job step
+      <select
+        className="field"
+        defaultValue=""
+        onChange={(event) => {
+          const entry = entries.find((item) => item.id === event.target.value);
+          if (entry) onPick(entry.name);
+        }}
+      >
+        <option value="">Type the words, or start from a name</option>
+        {entries.map((entry) => (
+          <option key={entry.id} value={entry.id}>{entry.kind === "chemical" ? "Chemical" : "Job"} · {entry.name}</option>
+        ))}
+      </select>
+      <span className="mt-1 block text-xs text-[#6d6256]">A name fills the box. It does not set a risk level, and a safety data sheet is not stored.</span>
+    </label>
+  );
+}
+
+function AuthorizationForm({ token, findingId, onCreated }: { token: string; findingId: string; onCreated: () => void }) {
+  const [taskName, setTaskName] = useState("");
+  const [note, setNote] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  return (
+    <form
+      className="mt-3 space-y-2"
+      onSubmit={(event) => {
+        event.preventDefault();
+        api.authorizeWork(token, findingId, taskName, note).then(() => {
+          setTaskName("");
+          setNote("");
+          onCreated();
+        }).catch((caught: unknown) => setError(messageOf(caught)));
+      }}
+    >
+      <label className="block text-sm">
+        Task
+        <input className="field" value={taskName} onChange={(event) => setTaskName(event.target.value)} />
+      </label>
+      <label className="block text-sm">
+        Note
+        <input className="field" value={note} onChange={(event) => setNote(event.target.value)} />
+      </label>
+      {error ? <p className="text-sm text-red-800">{error}</p> : null}
+      <button className="btn" type="submit">Record the authorization</button>
+    </form>
+  );
+}
+
 function FindingForm({
   token,
   observationId,
@@ -1234,6 +1493,7 @@ function FindingForm({
         saved.then(onCreated).catch((caught: unknown) => setError(messageOf(caught)));
       }}
     >
+      <LibraryPick token={token} onPick={setOriginalText} />
       <label className="block text-sm font-medium">
         Finding text, saved as first written
         <textarea className="mt-1 w-full rounded border border-stone-300 px-3 py-2 font-normal" value={originalText} onChange={(event) => setOriginalText(event.target.value)} />
@@ -1257,6 +1517,7 @@ function HazardForm({ token, findingId, onCreated }: { token: string; findingId:
         api.addHazard(token, findingId, description).then(onCreated).catch((caught: unknown) => setError(messageOf(caught)));
       }}
     >
+      <LibraryPick token={token} onPick={setDescription} />
       <label className="block text-sm font-medium">
         Hazard
         <textarea className="mt-1 w-full rounded border border-stone-300 px-3 py-2 font-normal" value={description} onChange={(event) => setDescription(event.target.value)} />

@@ -13,6 +13,7 @@ import {
   type MatrixLevel,
 } from "../../shared/src/index.ts";
 import { openDatabase } from "./db.ts";
+import { CHECKLISTS, LIBRARY } from "./library.ts";
 import {
   lookupAcceptance,
   lookupMatrix,
@@ -109,15 +110,117 @@ export function createApp(
     const actor = requireActor(db, req);
     const ids = actor.organizationIds;
     if (ids.length === 0) {
-      res.json({ inspections: [], findings: [] });
+      res.json({ inspections: [], findings: [], overdue: [] });
       return;
     }
     const inspections = listScoped(db, actor, "inspection", "inspected_on DESC").map(publicInspection);
     const rows = findingWorkRows(db, ids);
+    const today = localDate();
+    const overdue = overdueInScope(db, ids, today);
     res.json({
       inspections,
       findings: rows.map(publicWorkFinding),
+      overdue,
     });
+  }));
+
+  app.get("/organizations", wrap((req, res) => {
+    const actor = requireActor(db, req);
+    if (actor.organizationIds.length === 0) {
+      res.json({ organizations: [] });
+      return;
+    }
+    const placeholders = actor.organizationIds.map(() => "?").join(", ");
+    const rows = db
+      .prepare(`SELECT id, name FROM organization WHERE id IN (${placeholders}) ORDER BY name`)
+      .all(...actor.organizationIds) as Array<{ id: string; name: string }>;
+    res.json({ organizations: rows });
+  }));
+
+  app.get("/checklists", wrap((req, res) => {
+    requireActor(db, req);
+    res.json({ checklists: CHECKLISTS });
+  }));
+
+  app.get("/library", wrap((req, res) => {
+    requireActor(db, req);
+    res.json({
+      notice: "Names a shop can pick. A safety data sheet is not stored. A job step does not set a risk level.",
+      entries: LIBRARY,
+    });
+  }));
+
+  app.get("/comparison", wrap((req, res) => {
+    const actor = requireActor(db, req);
+    if (!actor.roles.includes("safety officer") && !actor.roles.includes("commander")) {
+      throw new HttpError(403, "safety officer or commander is required");
+    }
+    res.json({
+      notice: "Counts of records at each camp. Not a score and not a rate. The words of another camp's findings are not included.",
+      camps: campCounts(db, localDate()),
+    });
+  }));
+
+  app.post("/checklist-walks", wrap((req, res) => {
+    const actor = requireActor(db, req);
+    requireRole(actor, "safety officer");
+    const body = bodyOf(req);
+    const checklist = CHECKLISTS.find((item) => item.id === body.checklistId);
+    if (!checklist) {
+      throw new HttpError(400, "checklist not found");
+    }
+    const answers = Array.isArray(body.answers) ? body.answers : [];
+    const byId = new Map<string, boolean>();
+    for (const answer of answers) {
+      if (!answer || typeof answer !== "object") {
+        throw new HttpError(400, "each line needs a pass or a fail");
+      }
+      const row = answer as { itemId?: unknown; passed?: unknown };
+      if (typeof row.itemId !== "string" || typeof row.passed !== "boolean") {
+        throw new HttpError(400, "each line needs a pass or a fail");
+      }
+      byId.set(row.itemId, row.passed);
+    }
+    for (const item of checklist.items) {
+      if (!byId.has(item.id)) {
+        throw new HttpError(400, "each line needs a pass or a fail");
+      }
+    }
+    const organizationId = typeof body.organizationId === "string" ? body.organizationId : homeOrg(actor);
+    if (!actor.organizationIds.includes(organizationId)) {
+      throw new HttpError(404, "record not found");
+    }
+    const inspectedOn = requireString(body, "inspectedOn");
+    const inspectionId = randomUUID();
+    const stamp = now();
+    db.prepare(
+      `INSERT INTO inspection (id, organization_id, shop_name, inspected_on, inspector_user_id, status, created_at, created_by)
+       VALUES (?, ?, ?, ?, ?, 'draft', ?, ?)`,
+    ).run(inspectionId, organizationId, checklist.shopName, inspectedOn, actor.id, stamp, actor.id);
+    const findings: Array<{ id: string; originalText: string }> = [];
+    for (const item of checklist.items) {
+      const passed = byId.get(item.id) === true;
+      let findingId: string | null = null;
+      if (!passed) {
+        const observationId = randomUUID();
+        db.prepare(
+          `INSERT INTO observation (id, organization_id, inspection_id, text, created_at, created_by) VALUES (?, ?, ?, ?, ?, ?)`,
+        ).run(observationId, organizationId, inspectionId, item.text, stamp, actor.id);
+        const finding = insertFinding(db, actor, {
+          organizationId,
+          originalText: item.text,
+          sourceObservationId: observationId,
+          sourceReportId: null,
+        });
+        findingId = finding.id;
+        findings.push({ id: finding.id, originalText: finding.original_text });
+      }
+      db.prepare(
+        `INSERT INTO inspection_line (id, organization_id, inspection_id, item_text, result, finding_id, created_at, created_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).run(randomUUID(), organizationId, inspectionId, item.text, passed ? "pass" : "fail", findingId, stamp, actor.id);
+    }
+    res.status(201).json({ inspectionId, findings });
   }));
 
   app.get("/inspections/:id", wrap((req, res) => {
@@ -638,6 +741,29 @@ export function createApp(
     const actor = requireActor(db, req);
     const finding = mustFinding(db, routeId(req.params.id), actor);
     res.json(findingChain(db, finding));
+  }));
+
+  app.post("/findings/:id/authorizations", wrap((req, res) => {
+    const actor = requireActor(db, req);
+    requireRole(actor, "safety officer");
+    const finding = mustFinding(db, routeId(req.params.id), actor);
+    const body = bodyOf(req);
+    for (const key of ["decision", "accept", "matrixLevel", "risk", "authority"]) {
+      if (key in body) {
+        throw new HttpError(400, "a work authorization is not a risk acceptance");
+      }
+    }
+    const id = randomUUID();
+    db.prepare(
+      `INSERT INTO work_authorization (id, organization_id, finding_id, task_name, note, authorized_by, created_at, created_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(id, finding.organization_id, finding.id, requireString(body, "taskName"), requireString(body, "note"), actor.id, now(), actor.id);
+    res.status(201).json({
+      id,
+      taskName: requireString(body, "taskName"),
+      note: requireString(body, "note"),
+      authorizedBy: actor.displayName,
+    });
   }));
 
   app.post("/findings/:id/hazards", wrap((req, res) => {
@@ -1248,7 +1374,9 @@ function findingWorkRows(db: DatabaseSync, ids: string[]): Array<Record<string, 
   }
   const placeholders = ids.map(() => "?").join(", ");
   return db.prepare(
-    `SELECT f.id, f.original_text, f.status,
+    `SELECT f.id, f.organization_id, f.original_text, f.status,
+       (SELECT name FROM organization WHERE id = f.organization_id) AS organization_name,
+       (SELECT i.shop_name FROM inspection i JOIN observation o ON o.inspection_id = i.id WHERE o.id = f.source_observation_id) AS shop_name,
        (SELECT inspection_id FROM observation WHERE id = f.source_observation_id) AS inspection_id,
        (SELECT COUNT(*) FROM finding_hazard fh WHERE fh.finding_id = f.id) AS hazard_count,
        (SELECT COUNT(*) FROM risk_assessment ra
@@ -1295,8 +1423,73 @@ function publicWorkFinding(row: Record<string, unknown>) {
     actionStatus: row.action_status,
     actionDescription: row.action_description,
     actionOwnerUserId: row.action_owner_user_id,
+    organizationName: row.organization_name,
+    shopName: row.shop_name,
     step: workStep(row),
   };
+}
+
+function overdueInScope(db: DatabaseSync, ids: string[], today: string) {
+  if (ids.length === 0) return [];
+  const placeholders = ids.map(() => "?").join(", ");
+  const rows = db.prepare(
+    `SELECT id, finding_id, description, due_on FROM corrective_action
+     WHERE organization_id IN (${placeholders}) AND due_on IS NOT NULL AND due_on < ? AND status != 'closed'
+     ORDER BY due_on`,
+  ).all(...ids, today) as Array<{ id: string; finding_id: string; description: string; due_on: string }>;
+  return rows.map((row) => ({
+    id: row.id,
+    findingId: row.finding_id,
+    description: row.description,
+    dueOn: row.due_on,
+  }));
+}
+
+function campCounts(db: DatabaseSync, today: string) {
+  const orgs = db.prepare("SELECT id, parent_id, name FROM organization").all() as Array<{
+    id: string;
+    parent_id: string | null;
+    name: string;
+  }>;
+  const byId = new Map(orgs.map((org) => [org.id, org]));
+  const rootName = (id: string) => {
+    let current = byId.get(id);
+    const seen = new Set<string>();
+    while (current?.parent_id && !seen.has(current.id)) {
+      seen.add(current.id);
+      const parent = byId.get(current.parent_id);
+      if (!parent) break;
+      current = parent;
+    }
+    return current?.name ?? "Unknown";
+  };
+  const steps = ["assess", "decide", "assign", "verify", "close", "done"];
+  const buckets = new Map<string, Record<string, number>>();
+  for (const org of orgs) {
+    if (!org.parent_id) buckets.set(org.name, Object.fromEntries(steps.map((step) => [step, 0])));
+  }
+  for (const row of findingWorkRows(db, orgs.map((org) => org.id))) {
+    const name = rootName(String(row.organization_id));
+    const bucket = buckets.get(name) ?? Object.fromEntries(steps.map((step) => [step, 0]));
+    const step = String(workStep(row));
+    bucket[step] = (bucket[step] ?? 0) + 1;
+    buckets.set(name, bucket);
+  }
+  const late = db.prepare(
+    `SELECT organization_id, COUNT(*) AS n FROM corrective_action
+     WHERE due_on IS NOT NULL AND due_on < ? AND status != 'closed'
+     GROUP BY organization_id`,
+  ).all(today) as Array<{ organization_id: string; n: number }>;
+  const overdue = new Map<string, number>();
+  for (const row of late) {
+    const name = rootName(row.organization_id);
+    overdue.set(name, (overdue.get(name) ?? 0) + Number(row.n));
+  }
+  return [...buckets.entries()].map(([name, stepCounts]) => ({
+    name,
+    steps: stepCounts,
+    overdueActions: overdue.get(name) ?? 0,
+  }));
 }
 
 function tallyStatus(rows: Array<{ status: string }>): Record<string, number> {
@@ -1623,6 +1816,25 @@ function findingChain(db: DatabaseSync, finding: FindingRow) {
     actions: (actions as Record<string, unknown>[]).map(publicAction),
     evidence: (evidence as Record<string, unknown>[]).map(publicEvidence),
     verifications: (verifications as Record<string, unknown>[]).map(publicVerification),
+    authorizations: (
+      db.prepare(
+        `SELECT w.id, w.task_name, w.note, u.display_name AS authorized_by, w.created_at
+         FROM work_authorization w JOIN user u ON u.id = w.authorized_by
+         WHERE w.finding_id = ? ORDER BY w.created_at`,
+      ).all(finding.id) as Array<{
+        id: string;
+        task_name: string;
+        note: string;
+        authorized_by: string;
+        created_at: string;
+      }>
+    ).map((row) => ({
+      id: row.id,
+      taskName: row.task_name,
+      note: row.note,
+      authorizedBy: row.authorized_by,
+      createdAt: row.created_at,
+    })),
   };
 }
 

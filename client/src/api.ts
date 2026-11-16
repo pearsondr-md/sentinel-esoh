@@ -16,8 +16,18 @@ export type WorkFinding = {
   actionStatus: string | null;
   actionDescription: string | null;
   actionOwnerUserId: string | null;
+  organizationName: string | null;
+  shopName: string | null;
   step: "assess" | "decide" | "assign" | "verify" | "close" | "done";
 };
+
+export type OverdueAction = { id: string; findingId: string; description: string; dueOn: string };
+
+export type CampCount = { name: string; steps: Record<string, number>; overdueActions: number };
+
+export type LibraryEntry = { id: string; kind: "chemical" | "job"; name: string; note: string };
+
+export type ChecklistTemplate = { id: string; title: string; shopName: string; items: Array<{ id: string; text: string }> };
 
 export type Inspection = {
   id: string;
@@ -205,6 +215,7 @@ export type FindingChain = {
   actions: ActionRecord[];
   evidence: EvidenceRecord[];
   verifications: Verification[];
+  authorizations: Array<{ id: string; taskName: string; note: string; authorizedBy: string; createdAt: string }>;
 };
 
 export type OrgUser = {
@@ -234,7 +245,27 @@ export const api = {
   signIn: (email: string, password: string) =>
     request<Session>("/session", null, "POST", { email, password }),
   inspections: (token: string) => request<{ inspections: Inspection[] }>("/inspections", token),
-  work: (token: string) => request<{ inspections: Inspection[]; findings: WorkFinding[] }>("/work", token),
+  work: (token: string) =>
+    request<{ inspections: Inspection[]; findings: WorkFinding[]; overdue: OverdueAction[] }>("/work", token),
+  comparison: (token: string) => request<{ notice: string; camps: CampCount[] }>("/comparison", token),
+  organizations: (token: string) => request<{ organizations: Array<{ id: string; name: string }> }>("/organizations", token),
+  checklists: (token: string) => request<{ checklists: ChecklistTemplate[] }>("/checklists", token),
+  library: (token: string) => request<{ notice: string; entries: LibraryEntry[] }>("/library", token),
+  checklistWalk: (
+    token: string,
+    checklistId: string,
+    inspectedOn: string,
+    organizationId: string,
+    answers: Array<{ itemId: string; passed: boolean }>,
+  ) =>
+    request<{ inspectionId: string; findings: Array<{ id: string; originalText: string }> }>(
+      "/checklist-walks",
+      token,
+      "POST",
+      { checklistId, inspectedOn, organizationId, answers },
+    ),
+  authorizeWork: (token: string, findingId: string, taskName: string, note: string) =>
+    request<{ id: string }>(`/findings/${findingId}/authorizations`, token, "POST", { taskName, note }),
   inspection: (token: string, id: string) =>
     request<{ inspection: Inspection; observations: Observation[]; findings: FindingSummary[] }>(
       `/inspections/${id}`,

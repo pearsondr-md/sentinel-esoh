@@ -324,6 +324,28 @@ CREATE TABLE IF NOT EXISTS ai_exchange (
   created_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS inspection_line (
+  id TEXT PRIMARY KEY,
+  organization_id TEXT NOT NULL REFERENCES organization(id),
+  inspection_id TEXT NOT NULL REFERENCES inspection(id),
+  item_text TEXT NOT NULL,
+  result TEXT NOT NULL,
+  finding_id TEXT REFERENCES finding(id),
+  created_at TEXT NOT NULL,
+  created_by TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS work_authorization (
+  id TEXT PRIMARY KEY,
+  organization_id TEXT NOT NULL REFERENCES organization(id),
+  finding_id TEXT REFERENCES finding(id),
+  task_name TEXT NOT NULL,
+  note TEXT NOT NULL,
+  authorized_by TEXT NOT NULL REFERENCES user(id),
+  created_at TEXT NOT NULL,
+  created_by TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS record_event (
   id TEXT PRIMARY KEY,
   organization_id TEXT NOT NULL REFERENCES organization(id),
